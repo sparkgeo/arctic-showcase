@@ -1,0 +1,11 @@
+[project]
+name = "data-ingest"
+version = "0.1.0"
+description = "Package for ingesting data into the Arctic Showcase project."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
