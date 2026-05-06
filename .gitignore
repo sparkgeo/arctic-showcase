@@ -1,1 +1,16 @@
 .DS_Store
+.claude
+*.code-workspace
+documentation/
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.sqlite3
+*.db
+*.env
+.env.*
+.idea/
+.vscode/
