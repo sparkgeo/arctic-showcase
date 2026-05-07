@@ -28,12 +28,12 @@ This repo uses a **UV workspace** with a virtual root. Key rules:
 - Add a module-specific dep: `uv add --package <module_name> <dep>`.
 - Add a shared dep (available to all modules): `uv add <dep>` at the root.
 - Dev tools (ruff, mypy, pytest, ipykernel) live in the root `[dependency-groups] dev`, not per-module.
-- Sync everything: `uv sync --group dev`.
+- Sync everything: `uv sync --all-packages --group dev`.
 
 ## Common commands
 
 ```bash
-uv sync --group dev          # Install all deps including dev tools
+uv sync --all-packages --group dev   # Install all workspace members + dev tools
 uv run pytest                # Run tests
 uv run ruff check .          # Lint
 uv run ruff format .         # Format
