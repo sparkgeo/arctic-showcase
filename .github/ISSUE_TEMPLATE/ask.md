@@ -18,7 +18,7 @@ title: "[Ask] "
 <!-- This section should evolve over time. Document how your thinking develops as you learn more. 
 It is fine to leave this blank when first opening the issue. -->
 
-## Related Issues
+## Sub Issues
 <!-- Link to any Explore, Experiment, or Task issues that have been opened as part of investigating this question. 
 Update this list as new sub-tickets are created. -->
 
