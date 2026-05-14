@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Prescient Ice is an automated Arctic sea ice concentration (SIC) mapping project producing 500m resolution gridded SIC estimates over the Canadian Arctic from Sentinel-1 SAR imagery, using a geospatial foundation model (GeoFM) as the feature extraction backbone. It serves as an internal showcase for Prescient, demonstrating end-to-end data ingestion, analytics integration, and derived product delivery across a realistic multi-source geospatial pipeline.
+Prescient Ice is an automated Arctic sea ice concentration (SIC) mapping project producing 500m resolution gridded SIC estimates over Hudson Bay from Sentinel-1 SAR imagery, using a geospatial foundation model (GeoFM) as the feature extraction backbone. It serves as an internal showcase for Prescient, demonstrating end-to-end data ingestion, analytics integration, and derived product delivery across a realistic multi-source geospatial pipeline.
 
 For background, motivation, and a full project summary, see [`prescient_ice_overview.md`](prescient_ice_overview.md).
 
@@ -56,43 +56,29 @@ For full detail on embedding generation, downstream model choices, ancillary fea
 
 ## Pipeline Architecture
 
-The pipeline runs in six stages with Prescient as the shared data layer throughout. Stage 1 acquires source data from upstream providers. Stage 2 converts it to COG/PMTiles and registers it as STAC collections in Prescient. Stage 3 runs Clay's frozen encoder over Sentinel-1 scenes to produce patch embeddings, which are re-ingested into Prescient as a derived collection — decoupling the compute-intensive encoding step from downstream training iteration. Stage 4 assembles temporally aligned (embedding, label) pairs and trains the downstream regression model. Stage 5 applies the trained model to new SAR acquisitions and re-ingests the resulting 500m SIC grids. Stage 6 serves all layers through TiTiler and a MapLibre web viewer. AWS infrastructure spans Lambda and Batch for compute, Step Functions for orchestration, and S3 for all asset storage backing Prescient.
+The pipeline runs in six stages with Prescient as the shared data layer throughout. Stage 1 acquires source data from upstream providers. Stage 2 converts source data to COG and GeoParquet/PMTiles formats and registers it as STAC collections in Prescient; vector datasets carry dual assets — GeoParquet in the analytical CRS for pipeline use, and PMTiles in Web Mercator for visualisation. Stage 3 runs Clay's frozen encoder over Sentinel-1 scenes to produce patch embeddings, which are re-ingested into Prescient as a derived collection — decoupling the compute-intensive encoding step from downstream training iteration. Stage 4 assembles temporally aligned (embedding, label) pairs and trains the downstream regression model. Stage 5 applies the trained model to new SAR acquisitions and re-ingests the resulting 500m SIC grids. Stage 6 serves all layers through TiTiler and a MapLibre web viewer. AWS infrastructure spans Lambda and Batch for compute, Step Functions for orchestration, and S3 for all asset storage backing Prescient.
 
-For full stage-by-stage detail — format conversions, ingestion workflows, embedding serialisation and re-ingestion, training dataset assembly, inference triggers, visualisation layers, STAC collection definitions, and infrastructure mapping by stage — see [`prescient_ice_pipeline_architecture.md`](prescient_ice_pipeline_architecture.md).
+For full stage-by-stage detail — format conversions, ingestion workflows, projection and CRS strategy, dual-asset vector pattern, embedding serialisation and re-ingestion, training dataset assembly, inference triggers, visualisation layers, STAC collection definitions, and infrastructure mapping by stage — see [`prescient_ice_pipeline_architecture.md`](prescient_ice_pipeline_architecture.md).
 
 ---
 
 ## Study Area and Temporal Scope
 
-### Recommended Study Area
+The study area is Hudson Bay (main body), bounded approximately by 95°W–75°W, 58°N–66°N, with an analytical CRS of EPSG:3978 (NAD83 / Canada Atlas Lambert) and a 500m output grid. The temporal scope is October 2025 through January 2026, covering a single freeze-up season. Hudson Bay was selected for its complete annual ice cycle, confirmed Sentinel-1 EW coverage, strong CIS-derived label availability, and direct operational relevance to Arctic navigation and northern communities. The exact bounding box may be refined slightly once the output grid is defined in projected coordinates.
 
-To be defined, but should include a region of the Canadian Arctic that experiences:
-- Seasonal ice variability (freeze-up and break-up)
-- A mix of consolidated pack ice and marginal ice zone
-- Sufficient Sentinel-1 coverage
-- Relevance to shipping or northern communities (strengthens the narrative)
-
-Candidates include the Northwest Passage approaches, Hudson Bay, or the Beaufort Sea coast.
-
-### Temporal Scope
-
-For the initial showcase, a focused temporal window is recommended rather than a multi-year analysis:
-- A single freeze-up or break-up season (approximately 3–4 months) provides enough temporal variability to demonstrate the model while keeping data volumes manageable
-- A full annual cycle would be a stretch goal
-- Multi-year trend analysis is out of scope for the showcase but could be framed as a future direction
+For full detail on study area rationale, Sentinel-1 constellation status, training data volume estimates, CRS and projection decisions, and extension options, see [`prescient_ice_study_area.md`](prescient_ice_study_area.md).
 
 ---
 
 ## Project Phases
 
 ### Phase 1: Data Ingestion and Platform Setup
-- Define study area and temporal scope
 - Set up STAC collections in Prescient
 - Build ingestion pipelines for each data source (format conversion, metadata creation)
 - Validate data accessibility through TiTiler and MapLibre
 
 ### Phase 2: Training Data Preparation
-- Rasterize USNIC ice charts to 500m grid
+- Rasterize USNIC ice charts to 500m grid in EPSG:3978
 - Implement pure-cell label extraction
 - Implement temporal alignment filtering (24-hour baseline)
 - Match SAR acquisitions with labels and ancillary data
@@ -125,13 +111,14 @@ For the initial showcase, a focused temporal window is recommended rather than a
 | Item | Status | Notes |
 |---|---|---|
 | USNIC/CIS data overlap | **Confirmed** | USNIC weekly Arctic charts incorporate CIS analysis for Canadian waters. USNIC alone provides complete Canadian Arctic coverage; CIS need not be ingested separately as a label source for overlapping regions. |
+| Study area bounds | **Direction confirmed** | Hudson Bay, 95°W–75°W, 58°N–66°N. Exact bounds subject to minor refinement once output grid is defined in EPSG:3978. Verify Sentinel-1 EW scene availability against CDSE catalog before ingestion. |
 | USNIC source imagery metadata | To investigate | Determine if charts include metadata about which SAR scenes were used per polygon |
 | Clay input format for frozen extraction | To confirm | Confirm Clay's expected input patch size, normalization, and how AMSR2/ERA5 ancillary features are appended to the embedding vector |
 | Phase 1 accuracy threshold | To define | Establish what accuracy gap (e.g. vs AMSR2 baseline) would trigger progression to Phase 2 fine-tuning |
 | TESSERA coverage alignment | To evaluate | Check if pre-computed embeddings cover the study area and timeframe |
 | AlphaEarth access model | Confirmed | Pre-computed embeddings only via GEE or Source Cooperative; model weights not available. Annual temporal resolution rules it out as a model input. Candidate showcase only. |
 | RCM data access and licensing | To confirm | Determine availability and any restrictions for Radarsat Constellation Mission data |
-| Prescient vector capabilities | To confirm | Validate PMTiles serving and any limitations for ice chart and AIS vector data |
+| Prescient vector capabilities | To confirm | Validate PMTiles serving and GeoParquet analytical asset support for ice chart and AIS vector data |
 | Prescient Zarr support | To confirm | Determine if Zarr is supported for ERA5 or other gridded datasets |
 
 ---
@@ -143,3 +130,5 @@ For the initial showcase, a focused temporal window is recommended rather than a
 **Permafrost and Coastal Change Detection**: Use optical and SAR time series to map thermokarst development and coastal erosion along northern communities, leveraging Prescient's temporal query capabilities.
 
 **Operational Near-Real-Time Delivery**: Optimize the inference pipeline for sub-6-hour latency from SAR acquisition to published SIC map, targeting operational use for Arctic navigation.
+
+**Pan-Arctic Expansion**: Extend the study area to a pan-Arctic scope using EPSG:3995 (WGS 84 / Arctic Polar Stereographic) as the analytical CRS, aligning with NSIDC and AMSR2 native grid conventions. Hudson Bay serves as the development and validation testbed for this extension.
