@@ -8,7 +8,7 @@ For background, motivation, and a full project summary, see [`prescient_ice_over
 
 ### Modeling Approach Summary
 
-The modeling strategy is two-phased. In Phase 1, Clay v1.5 is used as a frozen feature extractor: Sentinel-1 EW HH/HV scenes are tiled into 256×256 chips and passed through Clay's encoder to extract 32×32 patch token grids per chip (each token covering ~320m × 320m on the ground at EW ~40m GSD) plus a class token serving as the chip embedding. Downstream classifiers — Random Forest and XGBoost evaluated in parallel — are trained on patch token vectors with AMSR2 and ERA5 ancillary features appended. Three feature configurations are evaluated to isolate the value Clay adds over raw features and the value of chip-level spatial context over patch-level features alone: a raw HH/HV backscatter baseline; patch tokens alone; and patch tokens combined with the class token chip embedding. Phase 2 — end-to-end Clay fine-tuning with a classification head — is pursued only if Phase 1 R² falls below a threshold T (to be calibrated against the AutoICE results distribution) or if Phase 1 with Clay embeddings does not meaningfully outperform the raw backscatter baseline. See [Model Architecture](#model-architecture) below for full detail.
+The modeling strategy is two-phased. In Phase 1, Clay v1.5 is used as a frozen feature extractor: Sentinel-1 EW HH/HV scenes are tiled into 256×256 chips and passed through Clay's encoder to extract 32×32 patch token grids per chip (each token covering ~320m × 320m on the ground at EW ~40m GSD) plus a class token serving as the chip embedding. Downstream classifiers — Random Forest and XGBoost evaluated in parallel — are trained on patch token vectors with AMSR2 and ERA5 ancillary features appended. Three feature configurations are evaluated to isolate the value Clay adds over raw features and the value of chip-level spatial context over patch-level features alone: a raw HH/HV backscatter baseline; patch tokens alone; and patch tokens combined with the class token chip embedding. Phase 2 — end-to-end Clay fine-tuning with a classification head — is pursued only if Phase 1 R² falls below 80% (calibrated against the AutoICE top-five SIC R² band of 87–92%) or if Phase 1 with Clay embeddings does not meaningfully outperform the raw backscatter baseline. See [Model Architecture](#model-architecture) below for full detail.
 
 ---
 
@@ -51,7 +51,7 @@ For full detail on label preparation phases, temporal alignment logic, the NERSC
 
 The architecture is built around Clay v1.5, following a two-phase strategy. Phase 1 (primary) uses Clay as a frozen feature extractor: Sentinel-1 EW HH/HV chips are passed through Clay's encoder, which produces a `[batch, 1025, 1024]` tensor — the first sequence element is the class token (chip embedding), the remaining 1024 are patch tokens reshaped into a 32×32 spatial grid. Each patch token is spatially registered to its ~320m footprint and treated as an individual feature vector, giving the downstream classifier approximately 1,024 training samples per chip rather than one. A custom `sentinel-1-ew` Clay metadata entry handles the mismatch between Clay's built-in IW VV/VH calibration and the project's EW HH/HV inputs, specifying the correct ~40m GSD and NERSC-derived normalisation statistics. Downstream classifiers — Random Forest and XGBoost evaluated in parallel — are trained on three parallel feature configurations: a raw HH/HV backscatter baseline; patch tokens alone (1024-dim); and patch tokens concatenated with the class token chip embedding (2,048-dim feature vector). AMSR2 and ERA5 ancillary features are appended in all configurations. Primary evaluation metric is R² on the 0–10 class scale (matching AutoICE), with an ordinal penalty metric as secondary.
 
-Phase 2 (conditional) adds an end-to-end Clay fine-tuning step with an eleven-class classification head. It is triggered if either Phase 1 R² falls below a threshold T (to be calibrated against the AutoICE results distribution before Phase 1 evaluation) or Phase 1 with Clay embeddings does not meaningfully outperform the raw backscatter baseline. Fine-tuning requires GPU compute on AWS.
+Phase 2 (conditional) adds an end-to-end Clay fine-tuning step with an eleven-class classification head. It is triggered if either Phase 1 R² falls below 80% (calibrated against the AutoICE top-five SIC R² band of 87–92%) or Phase 1 with Clay embeddings does not meaningfully outperform the raw backscatter baseline. Fine-tuning requires GPU compute on AWS.
 
 For full detail on the Clay v1.5 input specification, the EW metadata handling, patch token extraction mechanics, feature configurations, downstream classifier choices, the two-part Phase 2 trigger, and Phase 2 compute requirements, see [`prescient_ice_model_architecture.md`](prescient_ice_model_architecture.md).
 
@@ -86,10 +86,10 @@ For full detail on study area rationale, Sentinel-1 constellation status across 
 - Acquire AI4Arctic dataset (raw version preferred)
 - Implement Clay v1.5 frozen-encoder embedding pipeline with the custom `sentinel-1-ew` metadata entry
 - Derive NERSC-based normalisation statistics from AI4Arctic NERSC-corrected scenes
-- Implement label preparation: pure-cell extraction (Phase 1); area-weighted mixed cells with midpoint rounding (Phase 2)
+- Implement label preparation: pure-cell extraction (label-prep Phase 1); area-weighted mixed cells with midpoint rounding (label-prep Phase 2)
 - Train RF and XGBoost classifiers across the three feature configurations (raw backscatter baseline, patch tokens, patch tokens + chip embedding)
 - Evaluate on held-out AI4Arctic test scenes and a Hudson Bay subset; primary metric R² on 0–10 class scale, secondary ordinal penalty metric
-- If Phase 1 accuracy threshold or non-embedding baseline triggers are hit, proceed to Phase 2 Clay fine-tuning on GPU
+- If modeling Phase 1 accuracy threshold or non-embedding baseline triggers are hit, proceed to modeling Phase 2 Clay fine-tuning on GPU
 
 ### Phase 3: 2025–26 Hudson Bay Ingestion and Prospective Evaluation
 - Acquire 2025–26 Sentinel-1 EW, AMSR2, ERA5, USNIC, ICESat-2, and HLS data for the study area
@@ -109,7 +109,7 @@ For full detail on study area rationale, Sentinel-1 constellation status across 
 - Prepare demo environment showing the full data-to-product workflow
 - Demonstrate multi-source data browsing in Prescient
 - Show SIC class output overlaid with source data, USNIC chart comparison, and validation layers
-- Document results, methodology, and Phase 1 vs Phase 2 outcome
+- Document results, methodology, and modeling Phase 1 vs Phase 2 outcome
 
 ---
 
@@ -121,7 +121,7 @@ For full detail on study area rationale, Sentinel-1 constellation status across 
 | Study area bounds | **Direction confirmed** | Hudson Bay, 95°W–75°W, 58°N–66°N. Exact bounds subject to minor refinement once the 320m patch-aligned grid is defined in EPSG:3978. Verify Sentinel-1 EW scene availability against CDSE catalog before ingestion. |
 | Clay v1.5 input format for frozen extraction | **Resolved** | 256×256 chips, 8×8 patches, encoder output `[batch, 1025, 1024]` — class token + 32×32 patch token grid. Custom `sentinel-1-ew` metadata entry handles HH/HV bands and ~40m GSD; normalisation from NERSC-corrected AI4Arctic scenes. AMSR2/ERA5 ancillary features appended to patch token vectors after encoding. |
 | Clay v1.5 patch token API | To confirm | Confirm the specific Clay v1.5 codebase API for accessing the full `[batch, 1025, 1024]` encoder output tensor and the canonical convention that the first sequence element is the class token. Empirical testing on Sentinel-2 inputs has confirmed the tensor shape and apparent ordering; final source check pending. Implementation detail rather than design uncertainty. |
-| Phase 2 trigger threshold T | To define | Set after reviewing the full AutoICE results distribution (Stokholm et al. 2024) before Phase 1 evaluation begins. T calibrates the absolute-performance arm of the two-part Phase 2 trigger; the non-embedding baseline comparison is the second arm. |
+| Phase 2 trigger threshold T | **Resolved** | Set at 80% R² (AutoICE percentage convention) calibrated against the top-five SIC R² band of 87–92% in Stokholm et al. (2024), *The Cryosphere*, 18, 3471–3494, and Chen et al. (2024), *The Cryosphere*, 18, 1621–1632. Below this floor Phase 2 fine-tuning is mandatory; above it the non-embedding baseline comparison (second trigger arm) is decisive. See `prescient_ice_model_architecture.md` for the full calibration argument. |
 | Feature configuration × classifier evaluation scope | Open | Whether to run all six combinations of three feature configurations and two classifiers (RF, XGBoost), or to narrow on one axis first. Depends on implementation difficulty of cleanly parameterising the training loop. |
 | Hudson Bay subset of AI4Arctic | To investigate | Identify the Hudson Bay subset of AI4Arctic training scenes for domain-specific validation alongside the full pan-Arctic evaluation. |
 | USNIC source imagery metadata | To investigate | Determine if 2025–26 charts include metadata identifying which SAR scenes were used per polygon — would enable stronger alignment than date-based matching for the 2025–26 evaluation pipeline. |
