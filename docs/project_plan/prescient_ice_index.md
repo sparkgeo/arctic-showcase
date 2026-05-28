@@ -20,7 +20,7 @@ The project draws on fourteen datasets spanning SAR imagery, passive microwave, 
 |---|---|---|---|
 | AI4Arctic Sea Ice Challenge Dataset | Model input | Primary training and evaluation dataset (bundled SAR + AMSR2 + ERA5 + CIS/DMI charts) | Not ingested — consumed directly |
 | Sentinel-1 EW GRD | Model input | 2025–26 Hudson Bay imagery; NERSC noise correction applied at ingest | `sentinel-1-sar` |
-| AMSR2 AU_SI12 | Model input | SIC prior feature; via AI4Arctic for training, via JAXA for 2025–26 | `amsr2-sic` |
+| AMSR2 AU_SI12 | Model input | SIC prior feature; via AI4Arctic for training, via NSIDC for 2025–26 | `amsr2-sic` |
 | ERA5 Single Levels | Model input | Atmospheric feature; via AI4Arctic for training, via CDS for 2025–26; also drives temporal alignment filter | `era5-ancillary` |
 | Clay v1.5 patch tokens | Model input | SAR patch token grids (self-computed, 32×32 × 1024 per chip; class token chip embedding stored alongside) | `clay-embeddings` |
 | USNIC weekly SIGRID-3 | Supplemental | 2025–26 evaluation label source; Prescient showcase ingest | `usnic-ice-charts` |
@@ -130,6 +130,8 @@ For full detail on study area rationale, Sentinel-1 constellation status across 
 | RCM data access and licensing | To confirm | Determine availability and any restrictions for Radarsat Constellation Mission data. |
 | Prescient vector capabilities | To confirm | Validate PMTiles serving and GeoParquet analytical asset support for ice chart and AIS vector data. |
 | Prescient Zarr support | To confirm | Determine if Zarr is supported for ERA5 or other gridded datasets. |
+| Embedding serialisation at scale | To resolve at implementation | Per-chip 1024-band COGs with per-chip STAC items may become unwieldy at approximately 1,600 chips per Sentinel-1 EW scene. Alternative serialisations (Zarr, custom layouts) and class-token-as-separate-asset options to be evaluated during implementation. See `prescient_ice_pipeline_architecture.md` Stage 3 for context. |
+| Compute environment for training and embedding generation | To confirm | Amazon SageMaker is the likely environment for model training, with managed MLflow used for experiment tracking (see `prescient_ice_training_strategy.md`). Decision has further implications for where Clay embedding generation runs, IAM roles for S3 access, and VPC configuration relative to Prescient. A dedicated infrastructure section may be warranted once this is confirmed. |
 
 ---
 

@@ -8,38 +8,101 @@ One important exception sits outside Prescient: the primary training dataset, AI
 
 The pipeline is structured to make the Phase 1 modeling approach — Clay v1.5 as a frozen feature extractor with a separate downstream classifier — explicit as an architectural pattern. Embedding generation and embedding ingestion are distinct stages, not implementation details. This separation is what enables rapid downstream classifier iteration without re-running the encoder on every training run.
 
+The two diagrams below summarise these pipelines separately: the first covers the training pipeline from AI4Arctic through to the trained model artefact; the second covers the inference and evaluation pipeline from data acquisition through to visualisation and prospective evaluation.
+
 ```
-STAGE 1: DATA ACQUISITION
-  AI4Arctic NetCDF      ──┐ (direct to training pipeline; bypasses Prescient)
-                          │
-  Sentinel-1 EW GRD     ──┐
-  ERA5 Single Levels    ──┤
-  AMSR2 AU_SI12         ──┤──→  STAGE 2: INGESTION  ──→  PRESCIENT
-  USNIC SIGRID-3        ──┤      (NERSC noise correction       (STAC catalog)
-  ICESat-2 ATL07/10     ──┤       applied to Sentinel-1)             │
-  HLS L30/S30           ──┘                                           │
-                                                                      ▼
-                                                            STAGE 3: EMBEDDING
-                                                            (SAR → Clay encoder
-                                                             → 32×32 patch token
-                                                               COGs per chip
-                                                             → re-ingest to Prescient)
-                                                                      │
-                          ┌──────────────────────────────────────────┘
-                          │   ┌── (AI4Arctic — direct training path)
-                          ▼   ▼
-                  STAGE 4: TRAINING
-                  (patch tokens + labels
-                   → downstream classifier)
+TRAINING PIPELINE
+
+AI4ARCTIC SEA ICE CHALLENGE DATASET
+(533 NetCDF scenes; Sentinel-1 EW HH/HV + AMSR2 + ERA5 + CIS/DMI charts)
                           │
                           ▼
-                  STAGE 5: INFERENCE
-                  (2025–26 SAR → embeddings
-                   → 320m SIC class grid → re-ingest)
+              ┌─────────────────────┐
+              │  CHIP EXTRACTION    │
+              │  256×256px chips    │
+              │  aligned to Clay    │
+              │  input size         │
+              └─────────────────────┘
                           │
                           ▼
-                  STAGE 6: VISUALIZATION
-                  (TiTiler → MapLibre)
+              ┌─────────────────────┐
+              │  CLAY v1.5 ENCODER  │
+              │  (frozen weights)   │
+              │  → [B, 1025, 1024]  │
+              │  → 32×32 patch      │
+              │    token grid       │
+              └─────────────────────┘
+                          │
+          ┌───────────────┴───────────────┐
+          ▼                               ▼
+┌──────────────────┐           ┌──────────────────────┐
+│ LABEL            │           │ ANCILLARY FEATURES   │
+│ RASTERISATION    │           │ AMSR2 SIC + ERA5     │
+│ CIS/DMI charts   │           │ (from AI4Arctic       │
+│ → 320m patch     │           │  NetCDF bundle)      │
+│   grid           │           └──────────────────────┘
+└──────────────────┘                      │
+          │                               │
+          └───────────────┬───────────────┘
+                          ▼
+              ┌─────────────────────┐
+              │  SPATIAL JOIN       │
+              │  patch token ←→     │
+              │  class label (0–10) │
+              │  + ancillary        │
+              │  feature vector     │
+              └─────────────────────┘
+                          │
+                          ▼
+              ┌─────────────────────┐
+              │  DOWNSTREAM         │
+              │  CLASSIFIER         │
+              │  TRAINING           │
+              │  RF + XGBoost       │
+              │  3 feature configs  │
+              └─────────────────────┘
+                          │
+                          ▼
+                  Trained model → S3
+```
+
+```
+INFERENCE & EVALUATION PIPELINE
+
+STAGE 1: ACQUISITION
+  Sentinel-1 EW GRD  ──┐
+  ERA5 Single Levels ──┤
+  AMSR2 AU_SI12      ──┤
+  USNIC SIGRID-3     ──┤
+  ICESat-2 ATL07/10  ──┤
+  HLS L30/S30        ──┘
+                          │
+                          ▼
+              STAGE 2: INGESTION → PRESCIENT
+              (NERSC correction on Sentinel-1;         (STAC catalog)
+               format conversion to COG/GeoParquet/
+               PMTiles; STAC item registration)
+                          │
+                          ▼
+              STAGE 3: EMBEDDING → PRESCIENT
+              (Sentinel-1 COGs tiled into 256×256       (STAC catalog)
+               chips → Clay v1.5 encoder → 32×32
+               patch token COGs per chip → re-ingested
+               as clay-embeddings collection)
+                          │
+                          ▼
+              STAGE 5: INFERENCE  ←──  trained model (see Training Pipeline)
+              (patch token COGs + ancillary data
+               → downstream classifier
+               → 320m SIC class grid
+               → re-ingested as sic-output collection)
+                          │
+                    ┌─────┴──────┐
+                    ▼            ▼
+            STAGE 6:        PROSPECTIVE
+            VISUALIZATION   EVALUATION
+            (TiTiler →      (SIC outputs vs
+             MapLibre)       USNIC charts)
 ```
 
 ---
@@ -58,6 +121,8 @@ All spatial data in the Prescient-managed pipeline follows a consistent CRS conv
 
 AI4Arctic scenes are delivered in their own native scene-projected coordinate systems and are not reprojected into EPSG:3978 for training; reprojection at this stage would introduce resampling artefacts that the AI4Arctic authors specifically avoided by keeping each scene in its native projection. The training pipeline operates on AI4Arctic data in its native form. EPSG:3978 applies to the Prescient-managed 2025–26 data and to model outputs.
 
+Clay's coordinate inputs — the `latlon` tensor carrying sin/cos pairs for latitude and longitude, and the `gsd` scalar in metres — are expressed in geographic coordinates (WGS84) and are independent of the CRS of the underlying raster data. The projection of a Sentinel-1 scene, whether EPSG:3978 for the 2025–26 pipeline or a native scene projection for AI4Arctic, has no bearing on how Clay constructs its positional encoding. Scene-centre latitude and longitude can be derived from any CRS without reprojection.
+
 ---
 
 ## Stage 1: Data Acquisition
@@ -70,7 +135,7 @@ Each data source is pulled from its upstream provider on an as-needed basis. For
 
 **ERA5 Single Levels** (2025–26) — downloaded from the Copernicus Climate Data Store (CDS) using the `cdsapi` Python client. Variables: 2m air temperature, 10m u/v wind components, mean sea level pressure. Downloaded as NetCDF or GRIB, regridded to the study area.
 
-**AMSR2 AU_SI12** (2025–26) — pulled from JAXA's G-Portal. Daily 12.5km SIC composites in HDF5 format.
+**AMSR2 AU_SI12** (2025–26) — accessed from NSIDC via `earthaccess`. Daily 12.5km SIC composites in HDF-EOS5 format on NSIDC polar stereographic grids (EPSG:3411).
 
 **USNIC weekly Arctic SIGRID-3** (2025–26) — downloaded from the USNIC Arctic archive. Vector data (polygons) in ESRI Shapefile or GeoJSON format, with concentration attributes per polygon.
 
@@ -91,6 +156,14 @@ Ingestion converts heterogeneous source files into Prescient-compatible formats 
 Sentinel-1 EW HH/HV scenes acquired for the 2025–26 pipeline must have the NERSC additional noise correction applied during ingestion, before COG conversion. AI4Arctic provides NERSC-corrected data as a packaged option; for 2025–26 scenes acquired directly from CDSE, the project pipeline must apply the same correction to maintain input distribution consistency between training and inference. The HV channel is where this matters most because residual noise is closest to typical ice/water backscatter levels there, and HV is the channel most informative for ice/water discrimination. See `prescient_ice_training_strategy.md` and `prescient_ice_datasets.md` for further context on the consistency requirement.
 
 The NERSC correction is implemented as a pre-COG-conversion step in the Sentinel-1 ingestion workflow: ESA-corrected GRD pixels are read in, the NERSC algorithm is applied, and the corrected output is written to the EPSG:3978 COG.
+
+Land masking is deliberately not applied to the Sentinel-1 COG at ingestion. The source SAR COG is preserved as a faithful representation of what Sentinel-1 acquired; land masking is applied downstream at chip preparation (Stage 3) and again at final SIC output (Stage 5), sourced from the `land-mask` STAC collection (see below). This means the land mask can be revised or replaced without re-ingesting source SAR data, and the per-patch valid-fraction sidecar produced at Stage 3 captures land coverage in the same channel as data nodata.
+
+### Land Mask — One-Time Ingest
+
+A static land/water mask is ingested into Prescient once at project setup as the `land-mask` collection. It is derived from an authoritative coastline source — GSHHG full-resolution or OSM coastlines are the standard candidates for Arctic work — rasterised to the project's 320m output grid in EPSG:3978 over the Hudson Bay study area extent. The mask is a single-band raster with land marked as `1` and water as `0` (nodata reserved for outside the study area extent). One STAC item references the rasterised mask, with metadata recording the coastline source, source vintage, and rasterisation parameters.
+
+This collection is used at two distinct points in the pipeline: at Stage 3, the mask is sampled at SAR pixel resolution to flag land pixels as nodata before Clay encoding; at Stage 5, the same mask is applied to the final SIC output COG so that the published product distinguishes land from predicted open water. AI4Arctic training data uses the bundled `distance_map` variable directly and does not consume this collection — keeping training and inference symmetric in their treatment of land at Stage 3, just sourced from different rasters. See `prescient_ice_model_architecture.md` § Input Preparation for the rationale.
 
 ### Dual-Asset Pattern for Vector Data
 
@@ -114,13 +187,14 @@ Both assets are registered on the same STAC item with the same spatiotemporal me
 
 ### Ingestion Workflow
 
-Each source has its own ingestion workflow:
+Each source has its own ingestion workflow. The initial ingestion is a bulk operation over the fixed 2025–26 study window; ongoing or incremental ingest is not currently in scope.
 
-1. **Convert** — run format conversion. For rasters: GDAL to produce EPSG:3978 COGs, with Sentinel-1 receiving NERSC noise correction prior to conversion. For vectors: reproject source to EPSG:3978 and write GeoParquet (`data` asset); convert to WGS84 GeoJSON and run `tippecanoe` for the PMTiles `visual` asset.
-2. **Validate** — verify output geometry, CRS, nodata values, and COG/PMTiles/GeoParquet compliance.
-3. **Create STAC item** — generate a STAC item JSON with spatial and temporal metadata, asset hrefs pointing to S3 for both assets (where applicable), and any source-specific properties (e.g., Sentinel-1 polarisation and noise correction applied, USNIC chart validity date). Bounding box in WGS84.
-4. **Register** — POST the STAC item to Prescient's STAC Transaction API (or insert directly into PGStac if bulk loading).
-5. **Upload** — copy converted assets to the S3 bucket backing the Prescient catalog.
+1. **Create STAC collection** (once per dataset) — define and register a STAC collection for each data source before ingesting items. Each dataset maps to one collection; items are registered as members of that collection. Collection metadata includes spatial and temporal extent, license, and a description of the data source.
+2. **Convert** — run format conversion. For rasters: GDAL to produce EPSG:3978 COGs, with Sentinel-1 receiving NERSC noise correction prior to conversion. For vectors: reproject source to EPSG:3978 and write GeoParquet (`data` asset); convert to WGS84 GeoJSON and run `tippecanoe` for the PMTiles `visual` asset.
+3. **Validate** — verify output geometry, CRS, nodata values, and COG/PMTiles/GeoParquet compliance.
+4. **Create STAC item** — generate a STAC item JSON with spatial and temporal metadata, asset hrefs pointing to S3 for both assets (where applicable), and any source-specific properties (e.g., Sentinel-1 polarisation and noise correction applied, USNIC chart validity date). Bounding box in WGS84. A thumbnail asset (PNG, visualised representation of the data) should also be generated and registered on each item; Prescient supports thumbnail assets for catalog browsing purposes.
+5. **Register** — register the STAC item and its collection with Prescient. The exact registration mechanism (API, direct database insertion, or other tooling) is to be confirmed once the Prescient workflow is better understood; the output of this step is a STAC item correctly associated with its parent collection in the Prescient catalog.
+6. **Upload** — copy converted assets to the S3 bucket backing the Prescient catalog.
 
 **Infrastructure**: Lambda handles lightweight conversions (ERA5, HLS, STAC item creation). Batch handles heavy conversions (Sentinel-1 GRD processing with NERSC noise correction, USNIC PMTiles generation via `tippecanoe` for large Arctic-wide charts). Step Functions orchestrates each per-source workflow with retry logic and pipeline state visibility.
 
@@ -137,9 +211,9 @@ For Phase 1 training, this stage operates on AI4Arctic scenes directly (via the 
 ### Embedding Pipeline
 
 1. **Query** — retrieve Sentinel-1 EW HH/HV scenes from Prescient (2025–26 pipeline) or from the AI4Arctic data loader (training pipeline).
-2. **Tile** — divide each scene into 256×256-pixel chips at Clay's expected input size. At EW ~40m GSD, each chip covers approximately 10.2 km × 10.2 km.
+2. **Tile** — divide each scene into 256×256-pixel chips at Clay's expected input size. At EW ~40m GSD, each chip covers approximately 10.2 km × 10.2 km. Scene dimensions do not in general divide evenly into 256 pixels; the final chip in each row and column is shifted backward so that its trailing edge aligns with the scene edge, overlapping its predecessor by `256 - (scene_dim mod 256)` pixels. This covers every source pixel without introducing padded or synthetic content into Clay's inputs. Before encoding, the land mask is applied (sourced from the `land-mask` STAC collection for 2025–26 scenes, or the AI4Arctic `distance_map` variable for training), and land pixels and genuine SAR nodata pixels are both substituted with the per-band mean (post-normalisation zero). A per-patch valid-fraction is computed and retained for downstream filtering. Chips that contain no valid SAR pixels (entirely nodata or entirely land) are skipped — no encoding, no STAC item. See `prescient_ice_model_architecture.md` § Input Preparation for the rationale.
 3. **Encode** — pass each chip through Clay v1.5's frozen encoder (no gradient computation), using the custom `sentinel-1-ew` metadata entry with HH/HV band names, ~40m GSD, and NERSC-derived normalisation statistics (see `prescient_ice_model_architecture.md`). The encoder produces a `[batch, 1025, 1024]` tensor per batch: the first sequence element is the class token (chip embedding); the remaining 1024 elements are patch tokens, reshaped into a 32×32 grid where each token is spatially registered to a ~320m × 320m footprint.
-4. **Serialise** — write the patch token grid as a COG per chip with 32 × 32 spatial dimensions and 1024 bands (one band per embedding dimension). The class token (chip embedding) is stored separately per chip — either as a sidecar STAC asset or as an additional band/property on the patch token item, to be decided at implementation time. The COG preserves spatial registration of each patch token to its 320m footprint in EPSG:3978. Alternative serialisation (e.g., Zarr or a custom layout) may be considered if the 1024-band COG approach proves operationally awkward; the architectural commitment is to the 32×32 spatial grid, not to a specific storage format.
+4. **Serialise** — write the patch token grid as a COG per chip with 32 × 32 spatial dimensions and 1024 bands (one band per embedding dimension). Alongside, write a single-band 32 × 32 valid-fraction COG holding the per-patch fraction of valid (non-nodata, non-land) source SAR pixels — used downstream to filter patches by data quality without re-deriving the mask from the source SAR. Both COGs are registered on the same STAC item with consistent spatiotemporal bounds. The class token (chip embedding) is stored separately per chip — either as a sidecar STAC asset or as an additional band/property on the patch token item, to be decided at implementation time. The patch token COG preserves spatial registration of each patch token to its 320m footprint: in EPSG:3978 for the 2025–26 pipeline; AI4Arctic embeddings inherit the scene's native projection (per the projection strategy section). Alternative serialisation (e.g., Zarr or a custom layout) may be considered if the 1024-band COG approach proves operationally awkward or if the per-scene chip count — approximately 1,600 chips per Sentinel-1 EW scene, each producing a patch token COG, a valid-fraction COG, and a STAC item — makes catalog management or visualisation impractical at scale. The architectural commitment is to the 32×32 spatial grid plus the per-patch valid-fraction sidecar, not to a specific storage format.
 5. **Re-ingest** (2025–26 pipeline) — create a STAC item for each embedding COG and register it in Prescient under the `clay-embeddings` collection. STAC item metadata references the source SAR scene and the Clay model version used.
 
 The re-ingestion step completes the Prescient round-trip: embeddings are a derived analytical product managed through the same STAC interface as source data, discoverable by the spatial and temporal bounds of the source SAR scene.
@@ -189,8 +263,8 @@ The inference pipeline applies the trained classifier to new Sentinel-1 scenes a
 3. **Embedding** — run Clay v1.5 over the new scene (frozen weights, same procedure as Stage 3). Output is a 32×32 patch token grid per chip across the scene.
 4. **Feature assembly** — for each patch token, construct the feature vector matching the trained configuration (raw baseline, patch tokens, or patch tokens + chip embedding) with AMSR2 and ERA5 ancillary features appended.
 5. **Prediction** — apply the trained downstream classifier to each patch feature vector to produce per-patch class predictions (and per-class probabilities, if useful for the visualisation layer). For each chip, the result is a 32×32 prediction grid.
-6. **Rasterisation** — assemble per-chip 32×32 prediction grids into a scene-wide 320m SIC class COG in EPSG:3978. The output COG carries integer class values 0–10 with appropriate nodata handling.
-7. **Post-processing** — mask land areas, apply any QA flags. Write the final COG with nodata values and overviews. Optionally write a parallel COG of per-class probabilities (multi-band, one band per class) for downstream uncertainty visualisation.
+6. **Rasterisation** — assemble per-chip 32×32 prediction grids into a scene-wide 320m SIC class COG in EPSG:3978. Where chips overlap at scene boundaries (see `prescient_ice_model_architecture.md` § Input Preparation), each patch in the overlap region is assigned to the chip in which it sits more interior to the chip footprint (further from the nearest chip edge), giving a deterministic, single-source class for every output cell. Patches whose valid-fraction sidecar value falls below the configured threshold are written as nodata in the output. The output COG carries integer class values 0–10 with appropriate nodata handling.
+7. **Post-processing** — apply the `land-mask` STAC collection to mark land pixels as nodata in the output, and apply any additional QA flags. The land mask used here is the same authoritative source applied at Stage 3 chip preparation, ensuring consistency between what Clay saw as land and what the published product reports as land. Write the final COG with nodata values and overviews. Optionally write a parallel COG of per-class probabilities (multi-band, one band per class) for downstream uncertainty visualisation.
 8. **Re-ingestion** — create a STAC item for the SIC output, referencing the source SAR scene, NERSC noise correction status, Clay model version, and downstream classifier version. Register under the `sic-output` collection in Prescient. Bounding box in WGS84.
 
 **Infrastructure**: AWS Batch (GPU instance) for the Clay encoding step. Lambda or CPU Batch for the downstream classifier inference step (lightweight, fast). Step Functions orchestrates the trigger → encode → predict → ingest sequence with retry logic. The full cycle from SAR availability to SIC publication is expected to take on the order of minutes for a single scene once the pipeline is operational.
@@ -225,7 +299,8 @@ Layer toggling, opacity control, and temporal navigation (stepping through dates
 | `amsr2-sic` | COG | EPSG:3978 | AMSR2 passive microwave SIC daily composites |
 | `icesat2-tracks` | GeoParquet + PMTiles | EPSG:3978 / EPSG:3857 | ICESat-2 freeboard and lead detection transects (dual asset) |
 | `hls-optical` | COG | EPSG:3978 | Harmonized Landsat Sentinel-2 optical imagery |
-| `clay-embeddings` | COG (32×32 × 1024 bands) | EPSG:3978 | Clay v1.5 patch token grids derived from Sentinel-1 scenes; class token chip embedding stored alongside |
+| `land-mask` | COG | EPSG:3978 | Static land/water mask over the Hudson Bay study area, derived from an authoritative coastline source; applied at Stage 3 chip preparation and Stage 5 post-processing |
+| `clay-embeddings` | COG (32×32 × 1024 bands) + valid-fraction sidecar COG (32×32 × 1 band) | EPSG:3978 | Clay v1.5 patch token grids derived from Sentinel-1 scenes; class token chip embedding stored alongside; per-patch valid-fraction registered on the same STAC item |
 | `sic-output` | COG | EPSG:3978 | Model-predicted 320m SIC class grids (derived product) |
 
 All STAC item bounding boxes are expressed in WGS84 (EPSG:4326) per the STAC specification, regardless of the native asset CRS.

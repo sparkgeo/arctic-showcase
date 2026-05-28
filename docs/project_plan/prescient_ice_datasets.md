@@ -1,13 +1,31 @@
 # Prescient Ice: Datasets
 
-This document describes all datasets selected for or under active evaluation for the project, organised by their role. A summary table is provided at the end. Datasets that were evaluated and not selected are not listed here; see the dataset profiles document for full evaluation notes.
+This document describes all datasets selected for or under active evaluation for the project, organised by their role. A summary table is provided below. Datasets that were evaluated and not selected are not listed here; see the dataset profiles document for full evaluation notes.
 
 Each dataset entry is tagged with a suitability category:
 
 - **Model input** — used as model input and/or training/evaluation data.
 - **Supplemental** — confirmed for Prescient ingest as visualisation, validation, or showcase context. Not a model input.
 - **Candidate** — under consideration, not yet committed. Each candidate has a specific open question that must be resolved before development effort is allocated.
-- **Not selected** — evaluated and excluded. Not listed in this document.
+
+## Dataset Summary
+
+| Dataset | Category | Role | Prescient Collection |
+|---|---|---|---|
+| AI4Arctic Sea Ice Challenge Dataset | Model input | Primary training and evaluation dataset (bundled SAR + AMSR2 + ERA5 + CIS/DMI charts) | Not ingested — consumed directly |
+| Sentinel-1 EW GRD | Model input | 2025–26 Hudson Bay imagery; NERSC noise correction applied at ingest | `sentinel-1-sar` |
+| AMSR2 AU_SI12 | Model input | SIC prior feature; via AI4Arctic for training, via NSIDC for 2025–26 | `amsr2-sic` |
+| ERA5 Single Levels | Model input | Atmospheric feature; via AI4Arctic for training, via CDS for 2025–26; also drives temporal alignment filter | `era5-ancillary` |
+| Clay v1.5 patch tokens | Model input | SAR patch token grids (self-computed, 32×32 × 1024 per chip; class token chip embedding stored alongside) | `clay-embeddings` |
+| USNIC weekly SIGRID-3 | Supplemental | 2025–26 evaluation label source; Prescient showcase ingest | `usnic-ice-charts` |
+| ICESat-2 ATL07/ATL10 | Supplemental | Visualisation validation overlay; candidate 2025–26 supplementary labels | `icesat2-tracks` |
+| HLS L30/S30 | Supplemental | Optical validation (seasonal); visual context layer | `hls-optical` |
+| PM SIC CDR G02202 | Supplemental | Long-term climate context; Prescient showcase | `pm-sic-cdr` |
+| RCM ScanSAR | Candidate | Prescient showcase / inference transferability | TBD |
+| TESSERA | Candidate | Pre-computed embeddings showcase | TBD |
+| AlphaEarth AEF | Candidate | Pre-computed embeddings showcase | TBD |
+| SWOT KaRIn L2 Raster | Candidate | Supplementary lead labels / showcase | TBD |
+| AIS | Candidate | Shipping context layer | TBD |
 
 ---
 
@@ -25,7 +43,7 @@ The dataset comprises 533 scenes (513 training, 20 held-out test) covering Janua
 
 AI4Arctic distributes Sentinel-1 EW data with a single noise correction applied: the **NERSC algorithm** described in Korosov et al. (2022), *IEEE Transactions on Geoscience and Remote Sensing*, vol. 60, doi:10.1109/TGRS.2021.3131036. The user manual (Buus-Hinkler et al., 2022, document version 1.1, Section 2.1) describes the NERSC correction as state-of-the-art for Sentinel-1 EW, surpassing the standard ESA-applied correction, and notes that it is not distributed as a parallel option — both raw and RTT inherit the same NERSC correction, so the noise-correction choice is not a discriminator between dataset versions. The correction matters because it addresses residual scalloping (periodic intensity variations across the swath from antenna gain patterns) and incidence-angle-dependent biases that the ESA correction does not fully remove. These artefacts are most consequential on the HV channel, where the noise floor is closer to typical ice/water backscatter levels than on HH, and where HV is also the channel most informative for ice/water discrimination. The SAR data are exposed as the `nersc_sar_primary` (HH polarisation) and `nersc_sar_secondary` (HV polarisation) variables in the source netCDFs, giving backscatter coefficient (σ⁰) in dB. The same NERSC noise correction must be applied to 2025–26 Sentinel-1 scenes acquired directly from CDSE for prospective evaluation and inference, to maintain end-to-end consistency with the training data (see `prescient_ice_pipeline_architecture.md` for ingest-pipeline integration).
 
-Two distribution forms are available. The **raw version** preserves the SAR data at its native 40m pixel spacing along with the original SIGRID-3 polygon codes and lookup tables, with all variables in the source netCDFs unaltered apart from the NERSC noise correction (which is applied to both versions). The **RTT (ready-to-train) version** applies several pre-processing steps documented in the user manual (Buus-Hinkler et al., 2022) and Stokholm et al. (2024), *The Cryosphere*, 18, 3471–3494: a 2×2 averaging kernel downsamples SAR from 40m to 80m pixel spacing (with a 2×2 max kernel on charts at the same scale); per-channel min-max normalisation to the [-1, 1] range using statistics derived from training data; conversion of SOD and FLOE polygon attributes into class maps under a 65% dominant-class threshold; and sentinel value assignments for masked pixels. SIC in the RTT version is binned into 11 classes at 10% increments — mapping SIGRID-3 codes 0, 1, 2, 10, 20, 30, 40, 50, 60, 70, 80, 90, 91, and 92 into the 11-class scheme, with the 9+/10 special code (SIGRID-3 91) folded into the 100% class. The misc/ folder distributes both min/max and mean/standard-deviation statistics per channel, so either normalisation approach can be applied to the raw version when working outside RTT.
+Two distribution forms are available. The **raw version** preserves the SAR data at its native 40m pixel spacing along with the original SIGRID-3 (Sea Ice GeoReferenced Information and Data) polygon codes and lookup tables, with all variables in the source netCDFs unaltered apart from the NERSC noise correction (which is applied to both versions). The **RTT (ready-to-train) version** applies several pre-processing steps documented in the user manual (Buus-Hinkler et al., 2022) and Stokholm et al. (2024), *The Cryosphere*, 18, 3471–3494: a 2×2 averaging kernel downsamples SAR from 40m to 80m pixel spacing (with a 2×2 max kernel on charts at the same scale); per-channel min-max normalisation to the [-1, 1] range using statistics derived from training data; conversion of SOD and FLOE polygon attributes into class maps under a 65% dominant-class threshold; and sentinel value assignments for masked pixels. SIC in the RTT version is binned into 11 classes at 10% increments — mapping SIGRID-3 codes 0, 1, 2, 10, 20, 30, 40, 50, 60, 70, 80, 90, 91, and 92 into the 11-class scheme, with the 9+/10 special code (SIGRID-3 91) folded into the 100% class. The misc/ folder distributes both min/max and mean/standard-deviation statistics per channel, so either normalisation approach can be applied to the raw version when working outside RTT.
 
 The **raw version is preferred** for this project. Three arguments support this. First and decisively, the RTT 80m downsampling conflicts with the project's 320m output grid, which is derived from Clay v1.5's 8×8 patch footprint at Sentinel-1 EW's native ~40m ground sampling distance (see `prescient_ice_model_architecture.md` and `prescient_ice_study_area.md`). Working from RTT's 80m SAR would shift the patch footprint to 640m and the Clay custom `sentinel-1-ew` metadata entry's GSD field to ~80m, materially changing Clay's GSD-scaled positional encoding from what the architecture was designed around. Second, the project's eleven-class SIGRID-3 SIC encoding can be obtained directly from raw via the `convert_raw_icechart.py` script distributed in the AutoICE get-started tools (`github.com/astokholm/AI4ArcticSeaIceChallenge`), which produces SIC, SOD, and FLOE class maps at the original 40m pixel resolution using the same conversion table as RTT — so working from raw does not forfeit AutoICE-compatible label encoding. Third, raw gives full control over normalisation rather than locking into RTT's global min-max scaling. A consequence to note: the project's spatial output detail will exceed that of RTT-based AutoICE submissions. R² values computed on held-out scenes remain numerically comparable since the metric is scale-aware, so the quantitative comparison to the published top-five distribution is preserved even though our spatial scale differs. All three of the top-five teams whose solutions are described in Stokholm et al. (2024) used RTT; the University of Waterloo winning team additionally downsampled RTT by a further factor of 10 to increase model field of view (Chen et al., 2024, *The Cryosphere*, 18, 1621–1632). Our use of raw is the opposite trade — preserving native resolution to fit Clay's patch geometry.
 
@@ -38,6 +56,8 @@ AI4Arctic is consumed directly by the training pipeline rather than ingested int
 **Products:** 533 NetCDF files (513 training, 20 test); raw version preferred over RTT  
 **Access:** DTU Data DOI `10.11583/DTU.c.6244065.v2`; also available via TorchGeo on Hugging Face. Starter toolkit at `github.com/astokholm/AI4ArcticSeaIceChallenge`  
 **Prescient collection:** Not ingested — consumed directly by training pipeline
+
+> **Citation required.** The dataset terms require that users who publish work using AI4Arctic cite: Buus-Hinkler, Jørgen; Wulf, Tore; Stokholm, Andreas; Korosov, Anton; Saldo, Roberto; Pedersen, Leif Toudal; Arthurs, David; Solberg, Rune; Longépé, Nicolas; and Kreiner, Matilde Brandt; (2022): AI4Arctic Sea Ice Challenge Dataset. Danish Meteorological Institute. Dataset. https://doi.org/10.11583/DTU.c.6244065.
 
 ---
 
@@ -65,7 +85,7 @@ For temporal scope planning: Sentinel-1B failed in December 2021 and was not rep
 
 AMSR2 is a passive microwave radiometer aboard JAXA's GCOM-W1 satellite. It provides daily, all-weather Arctic-wide sea ice concentration derived from microwave brightness temperature retrieval algorithms, available continuously from 2012 to present at 12.5–25 km resolution. In this project it serves as a physics-based regional SIC prior: rather than asking the model to estimate ice concentration from SAR texture alone, the AMSR2 value for the corresponding patch footprint is appended as an ancillary feature, providing a coarse but physically-grounded starting estimate that the classifier refines to 320m resolution.
 
-AMSR2 enters the project via two paths. For **primary training and evaluation on AI4Arctic**, AMSR2 data is bundled into each NetCDF scene file by the AI4Arctic dataset authors, pre-co-registered to the SAR footprint. No separate AMSR2 acquisition or alignment is required for the training phase. For the **2025–26 Hudson Bay prospective evaluation and inference pipeline**, AMSR2 data is acquired directly from JAXA's G-Portal and ingested into Prescient as a STAC collection, where it is queried alongside the corresponding Sentinel-1 scene at inference time.
+AMSR2 enters the project via two paths. For **primary training and evaluation on AI4Arctic**, AMSR2 data is bundled into each NetCDF scene file by the AI4Arctic dataset authors, pre-co-registered to the SAR footprint. No separate AMSR2 acquisition or alignment is required for the training phase. For the **2025–26 Hudson Bay prospective evaluation and inference pipeline**, AMSR2 data is accessed from NSIDC via `earthaccess` and ingested into Prescient as a STAC collection, where it is queried alongside the corresponding Sentinel-1 scene at inference time.
 
 AMSR2 is explicitly not used as a training label. Its coarse resolution (40× the 320m target grid) and known accuracy degradation during summer melt — due to melt ponds and changing surface emissivity — make it unsuitable as a per-patch supervision signal. Its value is as a contextual prior that complements Clay-derived SAR features, not as ground truth.
 
@@ -205,25 +225,4 @@ The following datasets have been profiled and are under active evaluation, but a
 
 **AIS (Automatic Identification System)** — Maritime vessel tracking data. Not a model input; the appeal is narrative: overlaying Arctic shipping traffic on SIC model output directly illustrates the real-world relevance of accurate sea ice information for navigation. The access constraint is that comprehensive open-ocean Arctic coverage requires satellite AIS, and no free global S-AIS archive exists. The decision to include AIS depends on whether a suitable data source can be identified for the study area (e.g. a published research dataset covering the Northwest Passage or Beaufort Sea).
 
----
 
-## Dataset Summary
-
-| Dataset | Category | Role | Prescient Collection |
-|---|---|---|---|
-| AI4Arctic Sea Ice Challenge Dataset | Model input | Primary training and evaluation dataset (bundled SAR + AMSR2 + ERA5 + CIS/DMI charts) | Not ingested — consumed directly |
-| Sentinel-1 EW GRD | Model input | 2025–26 Hudson Bay imagery; NERSC noise correction applied at ingest | `sentinel-1-sar` |
-| AMSR2 AU_SI12 | Model input | SIC prior feature; via AI4Arctic for training, via JAXA for 2025–26 | `amsr2-sic` |
-| ERA5 Single Levels | Model input | Atmospheric feature; via AI4Arctic for training, via CDS for 2025–26; also drives temporal alignment filter | `era5-ancillary` |
-| Clay v1.5 patch tokens | Model input | SAR patch token grids (self-computed, 32×32 × 1024 per chip; class token chip embedding stored alongside) | `clay-embeddings` |
-| USNIC weekly SIGRID-3 | Supplemental | 2025–26 evaluation label source; Prescient showcase ingest | `usnic-ice-charts` |
-| ICESat-2 ATL07/ATL10 | Supplemental | Visualisation validation overlay; candidate 2025–26 supplementary labels | `icesat2-tracks` |
-| HLS L30/S30 | Supplemental | Optical validation (seasonal); visual context layer | `hls-optical` |
-| PM SIC CDR G02202 | Supplemental | Long-term climate context; Prescient showcase | `pm-sic-cdr` |
-| RCM ScanSAR | Candidate | Prescient showcase / inference transferability | TBD |
-| TESSERA | Candidate | Pre-computed embeddings showcase | TBD |
-| AlphaEarth AEF | Candidate | Pre-computed embeddings showcase | TBD |
-| SWOT KaRIn L2 Raster | Candidate | Supplementary lead labels / showcase | TBD |
-| AIS | Candidate | Shipping context layer | TBD |
-
----

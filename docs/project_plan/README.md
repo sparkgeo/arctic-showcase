@@ -24,3 +24,9 @@ Two-phase modeling strategy: Phase 1 uses Clay v1.5 as a frozen feature extracto
 
 ### [Pipeline Architecture](prescient_ice_pipeline_architecture.md)
 End-to-end pipeline across six stages — data acquisition, ingestion, embedding generation, model training, inference, and visualization — including the projection and CRS strategy, dual-asset vector pattern (GeoParquet + PMTiles), the AI4Arctic-bypasses-Prescient training path, NERSC noise correction at Sentinel-1 ingest, per-stage infrastructure recommendations, and a full STAC collection inventory.
+
+## Citations
+
+This project uses the AI4Arctic Sea Ice Challenge Dataset as its primary training and evaluation source. Per the dataset terms, any work using this dataset must cite:
+
+Buus-Hinkler, Jørgen; Wulf, Tore; Stokholm, Andreas; Korosov, Anton; Saldo, Roberto; Pedersen, Leif Toudal; Arthurs, David; Solberg, Rune; Longépé, Nicolas; and Kreiner, Matilde Brandt; (2022): AI4Arctic Sea Ice Challenge Dataset. Danish Meteorological Institute. Dataset. https://doi.org/10.11583/DTU.c.6244065.

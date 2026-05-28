@@ -90,6 +90,20 @@ ICESat-2 is still ingested into Prescient as a STAC collection (`icesat2-tracks`
 
 ---
 
+## Experiment Tracking
+
+The training strategy involves multiple feature configurations and model types, with further iteration likely on label rasterisation, temporal alignment windows, and hyperparameters. Tracking these experiments systematically — rather than relying on ad-hoc notes and spreadsheets — is worthwhile from the outset. MLflow is the chosen tool.
+
+**What MLflow captures.** Each training run logs parameters (feature configuration, model type, hyperparameters), metrics (validation accuracy, per-class precision/recall, confusion matrices), code version (git commit), and artefacts (the trained model, feature importances, evaluation plots). Autologging integrations for scikit-learn (Random Forest) and XGBoost capture most of this with minimal code changes — typically a `mlflow.autolog()` call and a `with mlflow.start_run()` context manager around training.
+
+**Deployment.** If training runs occur in Amazon SageMaker (the likely environment from early in the project), SageMaker's fully managed MLflow capability is the natural choice. Tracking server compute and metadata storage are hosted in the SageMaker service account, with artefacts stored in an S3 bucket in our own AWS account; setup is a few-clicks operation through SageMaker Studio with minimal ops overhead. The serverless "MLflow Apps" variant scales automatically and is the current preferred offering. If training ever needs to happen outside SageMaker, MLflow's local-file mode remains a viable fallback for individual development.
+
+**Relationship to the pipeline architecture.** The trained model artefact lives in S3, as already documented in the pipeline architecture. MLflow's model registry tracks model versions and lineage during development; the inference pipeline references the deployed model by its S3 path or MLflow URI. STAC catalogs the data and the model outputs (SIC class grids in the `sic-output` collection), not the model itself — STAC and MLflow have clearly separated responsibilities. A useful integration: models registered in SageMaker's managed MLflow automatically appear in the SageMaker Model Registry, unifying experiment tracking with model deployment metadata.
+
+**What this is not.** MLflow is not a replacement for version control of code (git) or data (the STAC catalog plus AI4Arctic's fixed release versioning). It complements both by linking each training run to a specific code state and data inputs, making any historical run reproducible from its logged metadata.
+
+---
+
 ## Open Questions
 
 - **USNIC source imagery metadata.** Whether SIGRID-3 files contain metadata identifying the SAR acquisitions used to derive each polygon. If available, this enables a materially stronger form of (SAR, chart) alignment for the 2025–26 evaluation pipeline than date-based matching.
