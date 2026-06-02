@@ -9,14 +9,6 @@ s3 = boto3.client("s3")
 BUCKET = "prescient-ice-data"
 
 DATASETS = {
-    "raw_train": {
-        "source_url": "https://data.dtu.dk/articles/dataset/Raw_AI4Arctic_Sea_Ice_Challenge_Dataset/21284967",
-        "s3_prefix": "training_data/ai4arctic/raw_train/",
-    },
-    "raw_test": {
-        "source_url": "https://data.dtu.dk/articles/dataset/Raw_AI4Arctic_Sea_Ice_Challenge_Test_Dataset/21762848",
-        "s3_prefix": "training_data/ai4arctic/raw_test/",
-    },
     "rtt_train": {
         "source_url": "https://data.dtu.dk/articles/dataset/Ready-To-Train_AI4Arctic_Sea_Ice_Challenge_Dataset/21316608",
         "s3_prefix": "training_data/ai4arctic/rtt_train/",
@@ -24,6 +16,14 @@ DATASETS = {
     "rtt_test": {
         "source_url": "https://data.dtu.dk/articles/dataset/Ready-To-Train_AI4Arctic_Sea_Ice_Challenge_Test_Dataset/21762830",
         "s3_prefix": "training_data/ai4arctic/rtt_test/",
+    },
+    "raw_train": {
+        "source_url": "https://data.dtu.dk/articles/dataset/Raw_AI4Arctic_Sea_Ice_Challenge_Dataset/21284967",
+        "s3_prefix": "training_data/ai4arctic/raw_train/",
+    },
+    "raw_test": {
+        "source_url": "https://data.dtu.dk/articles/dataset/Raw_AI4Arctic_Sea_Ice_Challenge_Test_Dataset/21762848",
+        "s3_prefix": "training_data/ai4arctic/raw_test/",
     },
 }
 
