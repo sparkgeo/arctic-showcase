@@ -1,3 +1,4 @@
+import time
 import boto3
 import botocore.exceptions
 import requests
@@ -7,6 +8,9 @@ from tqdm import tqdm
 
 s3 = boto3.client("s3")
 BUCKET = "prescient-ice-data"
+
+MAX_RETRIES = 5
+RETRY_BACKOFF = 2.0  # seconds, doubles each attempt
 
 DATASETS = {
     "rtt_train": {
@@ -63,6 +67,30 @@ def get_file_links(article_url: str) -> list[dict]:
     return all_files
 
 
+def download_to_local(url: str, local_path: Path, filename: str) -> None:
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            with requests.get(url, stream=True, timeout=120) as r:
+                r.raise_for_status()
+                total_bytes = int(r.headers.get("content-length", 0))
+                with tqdm(
+                    total=total_bytes, unit="B", unit_scale=True, desc=f"↓ {filename}", leave=False
+                ) as dl_pbar:
+                    with open(local_path, "wb") as f:
+                        for chunk in r.iter_content(chunk_size=1024 * 1024):
+                            f.write(chunk)
+                            dl_pbar.update(len(chunk))
+            return
+        except (requests.exceptions.ChunkedEncodingError, requests.exceptions.ConnectionError) as e:
+            if attempt == MAX_RETRIES:
+                raise
+            wait = RETRY_BACKOFF * (2 ** (attempt - 1))
+            tqdm.write(f"  Download error on attempt {attempt}/{MAX_RETRIES}: {e}. Retrying in {wait:.0f}s...")
+            if local_path.exists():
+                local_path.unlink()
+            time.sleep(wait)
+
+
 def main() -> None:
     dataset_files: dict[str, list[dict]] = {}
     for name, meta in DATASETS.items():
@@ -87,16 +115,7 @@ def main() -> None:
             tqdm.write(f"Skipping {s3_key} (already in S3)")
             continue
 
-        with requests.get(file_meta["download_url"], stream=True) as r:
-            r.raise_for_status()
-            total_bytes = int(r.headers.get("content-length", 0))
-            with tqdm(
-                total=total_bytes, unit="B", unit_scale=True, desc=f"↓ {filename}", leave=False
-            ) as dl_pbar:
-                with open(local_path, "wb") as f:
-                    for chunk in r.iter_content(chunk_size=1024 * 1024):
-                        f.write(chunk)
-                        dl_pbar.update(len(chunk))
+        download_to_local(file_meta["download_url"], local_path, filename)
 
         with tqdm(
             total=local_path.stat().st_size,
