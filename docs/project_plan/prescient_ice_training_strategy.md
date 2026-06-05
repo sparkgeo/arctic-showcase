@@ -73,7 +73,7 @@ The ERA5-informed window is applied as a pre-processing step during evaluation d
 
 **USNIC source imagery metadata.** If USNIC charts include metadata identifying which specific SAR acquisitions were used to derive each polygon, this enables filtering to cases where the chart and the Sentinel-1 scene are confirmed to be derived from the same acquisition. This would be a materially stronger form of alignment than date-based matching. Whether this metadata is available in the SIGRID-3 files is an open question to investigate.
 
-**AMSR2 temporal averaging.** AMSR2 daily SIC composites inherently smooth over the day's acquisitions, introducing a form of temporal averaging that is distinct from the point-in-time SAR observation. Since AMSR2 is used as an ancillary input feature rather than a label, this averaging is acceptable — it provides a coarse physics-based prior that is robust to short-term surface changes — but it should be noted when interpreting model sensitivity to the AMSR2 feature.
+**AMSR2 temporal matching.** Each scene is matched to the AMSR2 acquisition closest in time to the SAR acquisition, within a bounded window (the AI4Arctic training bundle uses a seven-hour window). Since AMSR2 is an ancillary input feature rather than a label, a small time offset is acceptable — it provides coarse, physically-grounded context robust to short-term surface change — but the matching window should be kept consistent between the training and inference paths so the feature is constructed comparably on both.
 
 ---
 
