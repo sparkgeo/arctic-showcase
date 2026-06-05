@@ -14,7 +14,7 @@ The two diagrams below summarise these pipelines separately: the first covers th
 TRAINING PIPELINE
 
 AI4ARCTIC SEA ICE CHALLENGE DATASET
-(533 NetCDF scenes; Sentinel-1 EW HH/HV + AMSR2 + ERA5 + CIS/DMI charts)
+(533 NetCDF scenes — 513 train, 20 test; Sentinel-1 EW HH/HV + AMSR2 + ERA5 + CIS/DMI charts)
                           │
                           ▼
               ┌─────────────────────┐
@@ -37,7 +37,7 @@ AI4ARCTIC SEA ICE CHALLENGE DATASET
           ▼                               ▼
 ┌──────────────────┐           ┌──────────────────────┐
 │ LABEL            │           │ ANCILLARY FEATURES   │
-│ RASTERISATION    │           │ AMSR2 SIC + ERA5     │
+│ RASTERISATION    │           │ AMSR2 Tb + ERA5      │
 │ CIS/DMI charts   │           │ (from AI4Arctic       │
 │ → 320m patch     │           │  NetCDF bundle)      │
 │   grid           │           └──────────────────────┘
@@ -72,7 +72,7 @@ INFERENCE & EVALUATION PIPELINE
 STAGE 1: ACQUISITION
   Sentinel-1 EW GRD  ──┐
   ERA5 Single Levels ──┤
-  AMSR2 AU_SI12      ──┤
+  AMSR2 L1R Tb       ──┤
   USNIC SIGRID-3     ──┤
   ICESat-2 ATL07/10  ──┤
   HLS L30/S30        ──┘
@@ -135,7 +135,7 @@ Each data source is pulled from its upstream provider on an as-needed basis. For
 
 **ERA5 Single Levels** (2025–26) — downloaded from the Copernicus Climate Data Store (CDS) using the `cdsapi` Python client. Variables: 2m air temperature, 10m u/v wind components, mean sea level pressure. Downloaded as NetCDF or GRIB, regridded to the study area.
 
-**AMSR2 AU_SI12** (2025–26) — accessed from NSIDC via `earthaccess`. Daily 12.5km SIC composites in HDF-EOS5 format on NSIDC polar stereographic grids (EPSG:3411).
+**AMSR2 L1R brightness temperature** (2025–26) — accessed from JAXA's G-Portal, the same product family AI4Arctic uses for training. HDF5 Level-1R swaths carrying all seven AMSR2 bands; which channels are retained as features is deferred to implementation (informed by feature-importance analysis). Stored at native coarse grid and resampled to the patch grid at inference.
 
 **USNIC weekly Arctic SIGRID-3** (2025–26) — downloaded from the USNIC Arctic archive. Vector data (polygons) in ESRI Shapefile or GeoJSON format, with concentration attributes per polygon.
 
@@ -180,7 +180,7 @@ Both assets are registered on the same STAC item with the same spatiotemporal me
 |---|---|---|---|---|
 | Sentinel-1 | SAFE / GeoTIFF | COG (EPSG:3978) | — | Apply NERSC noise correction before COG conversion; ensure radiometric calibration |
 | ERA5 | NetCDF / GRIB | COG (EPSG:3978) | — | Regrid to study area; one COG per variable per timestep |
-| AMSR2 | HDF5 | COG (EPSG:3978) | — | Reproject from native polar stereographic grid |
+| AMSR2 | HDF5 (L1R swath) | COG (EPSG:3978, native coarse grid) | — | Resample L1R brightness-temperature swaths to a regular coarse grid at ingest; resample to the 320 m patch grid at inference feature-assembly (Gaussian-weighted, matching AI4Arctic) |
 | USNIC | Shapefile / GeoJSON | GeoParquet (EPSG:3978) | PMTiles (EPSG:3857) | Preserve CT codes and other concentration attributes in both assets |
 | ICESat-2 | HDF5 | GeoParquet (EPSG:3978) | PMTiles (EPSG:3857) | Convert transect points/lines to GeoJSON as intermediate step |
 | HLS | COG (already) | COG (EPSG:3978) | — | Reproject/clip to study area if needed |
@@ -213,12 +213,12 @@ For Phase 1 training, this stage operates on AI4Arctic scenes directly (via the 
 1. **Query** — retrieve Sentinel-1 EW HH/HV scenes from Prescient (2025–26 pipeline) or from the AI4Arctic data loader (training pipeline).
 2. **Tile** — divide each scene into 256×256-pixel chips at Clay's expected input size. At EW ~40m GSD, each chip covers approximately 10.2 km × 10.2 km. Scene dimensions do not in general divide evenly into 256 pixels; the final chip in each row and column is shifted backward so that its trailing edge aligns with the scene edge, overlapping its predecessor by `256 - (scene_dim mod 256)` pixels. This covers every source pixel without introducing padded or synthetic content into Clay's inputs. Before encoding, the land mask is applied (sourced from the `land-mask` STAC collection for 2025–26 scenes, or the AI4Arctic `distance_map` variable for training), and land pixels and genuine SAR nodata pixels are both substituted with the per-band mean (post-normalisation zero). A per-patch valid-fraction is computed and retained for downstream filtering. Chips that contain no valid SAR pixels (entirely nodata or entirely land) are skipped — no encoding, no STAC item. See `prescient_ice_model_architecture.md` § Input Preparation for the rationale.
 3. **Encode** — pass each chip through Clay v1.5's frozen encoder (no gradient computation), using the custom `sentinel-1-ew` metadata entry with HH/HV band names, ~40m GSD, and NERSC-derived normalisation statistics (see `prescient_ice_model_architecture.md`). The encoder produces a `[batch, 1025, 1024]` tensor per batch: the first sequence element is the class token (chip embedding); the remaining 1024 elements are patch tokens, reshaped into a 32×32 grid where each token is spatially registered to a ~320m × 320m footprint.
-4. **Serialise** — write the patch token grid as a COG per chip with 32 × 32 spatial dimensions and 1024 bands (one band per embedding dimension). Alongside, write a single-band 32 × 32 valid-fraction COG holding the per-patch fraction of valid (non-nodata, non-land) source SAR pixels — used downstream to filter patches by data quality without re-deriving the mask from the source SAR. Both COGs are registered on the same STAC item with consistent spatiotemporal bounds. The class token (chip embedding) is stored separately per chip — either as a sidecar STAC asset or as an additional band/property on the patch token item, to be decided at implementation time. The patch token COG preserves spatial registration of each patch token to its 320m footprint: in EPSG:3978 for the 2025–26 pipeline; AI4Arctic embeddings inherit the scene's native projection (per the projection strategy section). Alternative serialisation (e.g., Zarr or a custom layout) may be considered if the 1024-band COG approach proves operationally awkward or if the per-scene chip count — approximately 1,600 chips per Sentinel-1 EW scene, each producing a patch token COG, a valid-fraction COG, and a STAC item — makes catalog management or visualisation impractical at scale. The architectural commitment is to the 32×32 spatial grid plus the per-patch valid-fraction sidecar, not to a specific storage format.
+4. **Serialise** — write the patch token grid as a COG per chip with 32 × 32 spatial dimensions and 1024 bands (one band per embedding dimension). Alongside, write a single-band 32 × 32 valid-fraction COG holding the per-patch fraction of valid (non-nodata, non-land) source SAR pixels — used downstream to filter patches by data quality without re-deriving the mask from the source SAR. Both COGs are registered on the same STAC item with consistent spatiotemporal bounds. The class token (chip embedding) is stored separately per chip — either as a sidecar STAC asset or as an additional band/property on the patch token item, to be decided at implementation time. (The assembled training table follows the same grain principle for an unrelated reason: the chip embedding is held on a separate chip-grain table to avoid duplicating it across every patch row — see Stage 4 § Training Dataset Assembly, step 7.) The patch token COG preserves spatial registration of each patch token to its 320m footprint: in EPSG:3978 for the 2025–26 pipeline; AI4Arctic embeddings inherit the scene's native projection (per the projection strategy section). Alternative serialisation (e.g., Zarr or a custom layout) may be considered if the 1024-band COG approach proves operationally awkward or if the per-scene chip count — approximately 1,600 chips per Sentinel-1 EW scene, each producing a patch token COG, a valid-fraction COG, and a STAC item — makes catalog management or visualisation impractical at scale. The architectural commitment is to the 32×32 spatial grid plus the per-patch valid-fraction sidecar, not to a specific storage format.
 5. **Re-ingest** (2025–26 pipeline) — create a STAC item for each embedding COG and register it in Prescient under the `clay-embeddings` collection. STAC item metadata references the source SAR scene and the Clay model version used.
 
 The re-ingestion step completes the Prescient round-trip: embeddings are a derived analytical product managed through the same STAC interface as source data, discoverable by the spatial and temporal bounds of the source SAR scene.
 
-**Infrastructure**: Clay inference requires GPU compute for practical throughput (CPU-only is feasible for small volumes but slow). AWS Batch with a GPU-enabled instance (g5 family) is appropriate. The batch job pulls SAR data (from Prescient via STAC API for 2025–26 scenes, or directly from the AI4Arctic data loader for training), runs inference, writes patch token COGs to S3, and (for 2025–26) registers them via the STAC Transaction API. SageMaker batch transform is an alternative if Clay is deployed as a SageMaker model.
+**Infrastructure**: Clay inference requires GPU compute for practical throughput (CPU-only is feasible for small volumes but slow). AWS Batch with a GPU-enabled instance (g5 family) is appropriate. The batch job pulls SAR data (from Prescient via STAC API for 2025–26 scenes, or directly from the AI4Arctic data loader for training), runs inference, writes patch token COGs to S3, and (for 2025–26) registers them in Prescient. SageMaker batch transform is an alternative if Clay is deployed as a SageMaker model.
 
 ---
 
@@ -229,12 +229,12 @@ The training stage assembles (patch token, label) pairs and trains the downstrea
 ### Training Dataset Assembly (AI4Arctic Path)
 
 1. **Scene iteration** — iterate over AI4Arctic training scenes via the TorchGeo data loader or direct NetCDF reads.
-2. **Chip extraction** — divide each scene into 256×256 chips aligned to Clay's input size. Extract HH/HV pixels for the encoder, and co-registered AMSR2 SIC and ERA5 surface variables for ancillary features.
+2. **Chip extraction** — divide each scene into 256×256 chips aligned to Clay's input size. Extract HH/HV pixels for the encoder, and co-registered AMSR2 brightness temperatures and ERA5 surface variables for ancillary features.
 3. **Embedding** — pass each chip through Clay v1.5 to produce the 32×32 patch token grid (see Stage 3).
 4. **Label rasterisation** — rasterise the AI4Arctic CIS/DMI chart polygons onto the 320m patch grid in the scene's native projection. Phase 1: extract pure cells (fully within a single polygon). Phase 2: include mixed cells with area-weighted class labels using the midpoint-rounding approach (see `prescient_ice_training_strategy.md`).
 5. **Patch-to-label spatial join** — each patch token is spatially joined to the rasterised class label at its 320m footprint. Joining is per-token rather than per-chip, producing approximately 1,024 (token, label) pairs per chip.
-6. **Ancillary feature attachment** — append AMSR2 SIC value and ERA5 variables (sampled at the patch centroid) to each patch token vector.
-7. **Dataset assembly** — write the assembled (feature_vector, class_label) pairs as a flat training dataset (numpy arrays or a columnar format) to S3.
+6. **Ancillary feature attachment** — append the AMSR2 brightness-temperature channels and ERA5 variables (sampled at the patch centroid) to each patch token vector.
+7. **Dataset assembly** — write the assembled training data to S3 as two GeoParquet tables, split by grain to avoid storing the chip embedding redundantly. The **patch table** holds one row per patch token: the 1024-dimensional patch token vector, the raw HH/HV backscatter statistics (mean, standard deviation, and ratio), the appended AMSR2 and ERA5 ancillary features, the class label (0–10), the patch footprint geometry, a `scene_id`, a `chip_id`, and the per-patch valid-fraction. The **chip table** holds one row per chip: the 1024-dimensional class token (chip embedding), the chip footprint geometry, a `scene_id`, and the matching `chip_id`. Because the chip embedding is identical for all ~1,024 patches within a chip, storing it on its own ~1,024×-smaller table rather than repeating it across every patch row roughly halves the stored width of the embedding data. The two tables are joined on `chip_id` only when Feature Configuration 3 (patch tokens + chip embedding) is trained; Configurations 1 and 2 read the patch table alone. GeoParquet is chosen over plain numpy or HDF5 because the classifier iteration loop repeatedly reads the same assembled data with column projection (each feature configuration selects only the columns it needs) and row-group predicate pushdown (the scene-level train/validation split filters on `scene_id`), both of which Parquet serves natively and efficiently on S3-backed object storage; the GeoParquet variant additionally carries the EPSG:3978 CRS and patch/chip geometry needed for the scene-level split, spatial QA, and the reserved Hudson Bay geographic validation subset, consistent with the project's vector `data` asset convention. The classifier never consumes the geometry columns — they are projected out of the feature matrix at load time. The AMSR2 and ERA5 ancillary features are kept on the patch table rather than split to a coarser-grain table, despite their coarse resolution (AMSR2 brightness temperature at roughly 5–25 km depending on channel, ERA5 at ~31 km) making their per-patch values highly repetitive within and across chips. The redundancy is cheap: these are roughly ten float32 columns against the patch table's ~1024, so a separate table would save on the order of one percent of width, and Parquet's dictionary and run-length encoding already compress the repeated values at the storage layer. More decisively, ancillary features are appended in all three feature configurations (including the raw baseline, so the comparison isolates Clay's contribution rather than the ancillary inputs), so moving them off the patch table would force a join on every training run rather than only for Configuration 3 — the opposite of the chip embedding's access pattern. See `prescient_ice_model_architecture.md` § Feature Configurations for the per-configuration feature composition.
 
 ### Training Dataset Assembly (2025–26 Retraining Path)
 
@@ -296,7 +296,7 @@ Layer toggling, opacity control, and temporal navigation (stepping through dates
 | `sentinel-1-sar` | COG | EPSG:3978 | Sentinel-1 EW GRD scenes over study area, NERSC noise correction applied |
 | `usnic-ice-charts` | GeoParquet + PMTiles | EPSG:3978 / EPSG:3857 | USNIC weekly Arctic ice concentration polygons (dual asset) |
 | `era5-ancillary` | COG | EPSG:3978 | ERA5 surface variables (temperature, wind, pressure) |
-| `amsr2-sic` | COG | EPSG:3978 | AMSR2 passive microwave SIC daily composites |
+| `amsr2` | COG | EPSG:3978 | AMSR2 passive-microwave brightness temperature (JAXA L1R), stored at native coarse grid and resampled to the patch grid at inference |
 | `icesat2-tracks` | GeoParquet + PMTiles | EPSG:3978 / EPSG:3857 | ICESat-2 freeboard and lead detection transects (dual asset) |
 | `hls-optical` | COG | EPSG:3978 | Harmonized Landsat Sentinel-2 optical imagery |
 | `land-mask` | COG | EPSG:3978 | Static land/water mask over the Hudson Bay study area, derived from an authoritative coastline source; applied at Stage 3 chip preparation and Stage 5 post-processing |
