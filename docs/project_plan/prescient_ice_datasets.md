@@ -6,6 +6,7 @@ Each dataset entry is tagged with a suitability category:
 
 - **Model input** — used as model input and/or training/evaluation data.
 - **Supplemental** — confirmed for Prescient ingest as visualisation, validation, or showcase context. Not a model input.
+- **Pipeline infrastructure** — a static preprocessing resource ingested once at project setup; not a model input and not a showcase layer.
 - **Candidate** — under consideration, not yet committed. Each candidate has a specific open question that must be resolved before development effort is allocated.
 
 ## Dataset Summary
@@ -21,6 +22,7 @@ Each dataset entry is tagged with a suitability category:
 | ICESat-2 ATL07/ATL10 | Supplemental | Visualisation validation overlay; candidate 2025–26 supplementary labels | `icesat2-tracks` |
 | HLS L30/S30 | Supplemental | Optical validation (seasonal); visual context layer | `hls-optical` |
 | PM SIC CDR G02202 | Supplemental | Long-term climate context; Prescient showcase | `pm-sic-cdr` |
+| NRCan CanVec Land Features | Pipeline infrastructure | Static land/water mask and distance-to-land index for the 2025–26 inference pipeline; one-time ingest rasterised to two-band COG in EPSG:3978 | `land-mask` |
 | RCM ScanSAR | Candidate | Prescient showcase / inference transferability | TBD |
 | TESSERA | Candidate | Pre-computed embeddings showcase | TBD |
 | AlphaEarth AEF | Candidate | Pre-computed embeddings showcase | TBD |
@@ -101,13 +103,13 @@ Passive microwave brightness temperature carries a strong, weather-independent i
 
 ERA5 is ECMWF's fifth-generation global atmospheric reanalysis, providing hourly estimates of surface and near-surface atmospheric variables on a ~31 km grid from 1940 to present. It is produced by the Copernicus Climate Change Service and is freely available.
 
-ERA5 serves two distinct purposes in this project. First, selected variables — 2m air temperature, 10m wind components (u, v), and mean sea level pressure — are used as ancillary features appended to the patch token vectors, providing atmospheric physical context that aids SAR interpretation (e.g. wind-roughened open water can produce high SAR backscatter that mimics young ice signatures, and temperature distinguishes active melt from stable frozen conditions). Second, ERA5 temperature and wind data is used to drive the season-adaptive temporal alignment filter in the 2025–26 evaluation pipeline (see `prescient_ice_training_strategy.md`).
+ERA5 serves two distinct purposes in this project. First, six variables bundled in the AI4Arctic NetCDF files are used as ancillary features appended to the patch token vectors: `u10m_rotated` and `v10m_rotated` (10m wind components in m/s, rotated to align with the S-1 flight direction), `t2m` (2m air temperature in K), `skt` (skin temperature in K), `tcwv` (total column water vapour in kg/m²), and `tclw` (total column cloud liquid water in kg/m²). These provide atmospheric physical context that aids SAR interpretation (e.g. wind-roughened open water can produce high SAR backscatter that mimics young ice signatures, and temperature distinguishes active melt from stable frozen conditions). No normalisation is applied. The 2025–26 CDS download must apply the same rotation to wind components as the AI4Arctic bundle — see `prescient_ice_model_architecture.md` § Feature Contract for the full specification. Second, ERA5 temperature and wind data is used to drive the season-adaptive temporal alignment filter in the 2025–26 evaluation pipeline (see `prescient_ice_training_strategy.md`).
 
 For **primary training on AI4Arctic**, ERA5 data is bundled into each scene NetCDF by the dataset authors, pre-co-registered to the SAR footprint. For the **2025–26 pipeline**, ERA5 is acquired directly from the Copernicus Climate Data Store and ingested into Prescient as a STAC collection. ERA5 is distributed on a regular 0.25° lat-lon grid (EPSG:4326) and is reprojected to the project's analytical CRS (EPSG:3978) during ingestion.
 
 Note that ERA5 also includes a sea ice concentration variable derived from passive microwave observations. It is not used as a model feature here — it is not among the ERA5 variables provided in the AI4Arctic bundle, and including it would break train/inference feature parity — though it remains a candidate comparison layer for the Prescient showcase viewer.
 
-**Products:** ERA5 Single Levels (hourly or daily, 2m temperature, 10m wind u/v, MSLP)  
+**Products:** ERA5 Single Levels (hourly or daily): `u10m_rotated`, `v10m_rotated`, `t2m`, `skt`, `tcwv`, `tclw`  
 **Access:** Copernicus Climate Data Store (CDS) via `cdsapi`; NetCDF output with server-side spatial/temporal subsetting. For training, accessed via AI4Arctic NetCDF bundles.  
 **Prescient collection:** `era5-ancillary` (COG; Zarr as alternative pending Prescient format support)
 
@@ -208,6 +210,37 @@ For this project, the CDR is not used as a model input or training label — its
 **Products:** Final CDR G02202 v6 (daily and monthly SIC, 25 km, 1978–present)  
 **Access:** NSIDC via `earthaccess`; NetCDF on NSIDC Sea Ice Polar Stereographic grids (EPSG:3411)  
 **Prescient collection:** `pm-sic-cdr` (COG)
+
+---
+
+## Pipeline Infrastructure
+
+This entry covers a dataset that serves the pipeline directly — as a static preprocessing resource — rather than functioning as a model input or visualisation layer. It is ingested once at project setup.
+
+### NRCan CanVec Land Features
+
+**Category:** Pipeline infrastructure. One-time static land/water mask and distance-to-land index for the 2025–26 inference path.
+
+The `land-mask` Prescient collection is derived from the Shoreline and Island entities in NRCan's CanVec Land Features series at 1:50,000 scale. CanVec is the authoritative multi-scale topographic reference product for the Canadian landmass, produced by the Canada Centre for Mapping and Earth Observation (CCMEO) from the National Topographic Database (NTDB) with ongoing updates incorporating satellite imagery (Landsat, SPOT, RADARSAT) for northern areas. At 1:50,000, the Shoreline entity carries positional accuracy of approximately 10m, satisfying the requirement that the land mask source be no coarser than ~10m to avoid rasterisation artefacts at the 40m SAR pixel scale.
+
+Three other candidates were evaluated and rejected. GSHHG full-resolution ("f" level) draws from the World Vector Shoreline (WVS) at 1:250,000 scale, for which the WVS Plus positional accuracy specification is ±500m (90th percentile circular error) — an order of magnitude too coarse for pixel-level masking at 40m. OSM coastlines meet the resolution requirement in well-mapped areas but are non-authoritative, impose an ODbL share-alike licence constraint on derived products, and have unquantified per-area completeness for the smaller islands within Hudson Bay. CHS Electronic Navigational Charts provide the finest available Canadian shoreline data, derived from hydrographic surveys, but obtaining the vector chart data for non-navigational purposes requires a formal CHS licence application — unjustified overhead when CanVec meets all technical requirements under a permissive open licence. The entire study area (95°W–75°W, 58°N–66°N) is Canadian territory, making CanVec the natural authoritative choice.
+
+**COG band layout.** The rasterisation step reprojects the CanVec Shoreline and Island polygons to EPSG:3978 and produces a two-band COG at 40m resolution (matching Sentinel-1 EW native pixel spacing):
+
+- **Band 1 — Binary mask.** Land = `1`, water = `0`, nodata (uint8 255) outside the study area extent. Used at Stage 3 to flag land pixels as nodata before Clay encoding, and at Stage 5 to blank land from the published SIC product.
+- **Band 2 — Distance-to-land index.** An integer index (uint8, 0–41) encoding distance from the nearest land pixel, following the AI4Arctic Table 7 encoding scheme exactly (Buus-Hinkler et al., 2022, dataset user manual): land pixels carry `0`; water pixels carry a bin index from `1` (0–0.5 km) to `41` (300+ km), using a nonlinear scheme that provides 0.5 km bin resolution for the first 20 km and progressively coarser bins beyond. Derived by applying a Euclidean distance transform (`scipy.ndimage.distance_transform_edt`) to the inverted Band 1 mask, converting pixel distances to kilometres using the 40m pixel spacing, and binning the result according to the Table 7 thresholds. Land pixels are set to `0` to match the AI4Arctic convention.
+
+The distance-to-land index is included as a model feature, not only as a masking aid. Its primary utility is to help downstream classifiers handle AMSR-2 brightness temperature channels in coastal patches: AMSR-2 footprints (6–25 km depending on channel) near the coast blend land and water brightness temperatures, and a coastal proximity signal lets the model learn to discount potentially contaminated AMSR-2 values near the shore. This motivation and encoding follow the AI4Arctic dataset directly (Buus-Hinkler et al., 2022), where `distance_map` is described as useful "when using AMSR-2 channels with a coarse ground resolution over coastal areas to mitigate land spill-over effects." Using the same integer index scheme ensures feature-level consistency between the AI4Arctic training path (which reads `distance_map` directly from the NetCDF) and the 2025–26 inference path (which reads Band 2 of this COG).
+
+**A note on training-inference provenance.** In AI4Arctic, both the binary land mask and the distance index are derived from the same OSM coastline source (Buus-Hinkler et al., 2022). In the `land-mask` COG, both bands are derived from the same CanVec source, preserving intra-COG consistency. The OSM-vs-CanVec difference is an inter-path discrepancy: `distance_map` values in AI4Arctic training scenes reflect OSM geometry, while Band 2 values at inference reflect CanVec geometry. In well-surveyed areas like Hudson Bay this difference is small (CanVec positional accuracy ~10m vs OSM's variable but broadly similar quality in this region), and the valid-fraction filter already excludes the heavily coastal patches where any geometry discrepancy is largest.
+
+One STAC item references the two-band COG, with metadata recording the CanVec product version, the NTS tile set used, the rasterisation parameters, and the Table 7 index encoding.
+
+**Products:** NRCan CanVec Land Features — Shoreline and Island entities, 1:50,000 scale  
+**Access:** NRCan Open Government Portal (`open.canada.ca`); prepackaged Shapefiles at `ftp.maps.canada.ca/pub/nrcan_rncan/vector/canvec/shp/Land/`, tiled by NTS map sheet; clipped area extracts also available via the NRCan Geospatial Data Extraction tool. No registration required.  
+**Licence:** Open Government Licence – Canada (OGL 2.0) — free use with attribution  
+**Vintage:** Derived from NTDB with satellite-imagery updates for northern areas; Open Government Portal record last modified December 2025; specific tile vintages vary by NTS sheet.  
+**Prescient collection:** `land-mask` (two-band COG: Band 1 binary uint8, Band 2 distance index uint8 0–41; 40m, EPSG:3978)
 
 ---
 
