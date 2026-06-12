@@ -4,7 +4,7 @@
 
 The Prescient Ice pipeline moves data from satellite acquisition through processing, model training, inference, and delivery in six stages. Prescient — the project's cloud-native STAC data management platform — sits at the centre of most stages, acting as the shared data layer between source data, derived products, and visualisation.
 
-One important exception sits outside Prescient: the primary training dataset, AI4Arctic, is consumed directly by the training pipeline rather than being ingested into Prescient as a STAC collection. AI4Arctic ships as a pre-curated, scene-co-registered NetCDF dataset bundling Sentinel-1 EW SAR, AMSR2, ERA5, and CIS/DMI chart labels per scene — re-ingesting it into Prescient as separate per-source collections would discard the alignment that makes it useful and provides no analytical benefit. The Prescient-managed pipeline begins at the 2025–26 Hudson Bay prospective evaluation data, where Sentinel-1, AMSR2, ERA5, and USNIC charts are acquired independently from their providers and ingested as separate STAC collections to be matched up by the project pipeline.
+One important exception sits outside Prescient: the primary training dataset, AI4Arctic, is consumed directly by the training pipeline rather than being ingested into Prescient as a STAC collection. AI4Arctic ships as a pre-curated, scene-co-registered NetCDF dataset bundling Sentinel-1 EW SAR, AMSR2, ERA5, and CIS/DMI chart labels per scene — re-ingesting it into Prescient as separate per-source collections would discard the alignment that makes it useful and provides no analytical benefit. The Prescient-managed pipeline begins at the 2025–26 Hudson Bay prospective evaluation data, where Sentinel-1, AMSR2, ERA5, and CIS charts are acquired independently from their providers and ingested as separate STAC collections to be matched up by the project pipeline.
 
 The pipeline is structured to make the Phase 1 modeling approach — Clay v1.5 as a frozen feature extractor with a separate downstream classifier — explicit as an architectural pattern. Embedding generation and embedding ingestion are distinct stages, not implementation details. This separation is what enables rapid downstream classifier iteration without re-running the encoder on every training run.
 
@@ -73,7 +73,7 @@ STAGE 1: ACQUISITION
   Sentinel-1 EW GRD  ──┐
   ERA5 Single Levels ──┤
   AMSR2 L1R Tb       ──┤
-  USNIC SIGRID-3     ──┤
+  CIS SIGRID-3      ──┤
   ICESat-2 ATL07/10  ──┤
   HLS L30/S30        ──┘
                           │
@@ -102,7 +102,7 @@ STAGE 1: ACQUISITION
             STAGE 6:        PROSPECTIVE
             VISUALIZATION   EVALUATION
             (TiTiler →      (SIC outputs vs
-             MapLibre)       USNIC charts)
+             MapLibre)       CIS charts)
 ```
 
 ---
@@ -137,7 +137,7 @@ Each data source is pulled from its upstream provider on an as-needed basis. For
 
 **AMSR2 L1R brightness temperature** (2025–26) — accessed from JAXA's G-Portal, the same product family AI4Arctic uses for training. HDF5 Level-1R swaths carrying all seven AMSR2 bands; which channels are retained as features is deferred to implementation (informed by feature-importance analysis). Stored on a fixed 2 km canonical grid matching AI4Arctic Table 1 and resampled to the patch grid at inference.
 
-**USNIC weekly Arctic SIGRID-3** (2025–26) — downloaded from the USNIC Arctic archive. Vector data (polygons) in ESRI Shapefile or GeoJSON format, with concentration attributes per polygon.
+**CIS Hudson Bay weekly regional SIGRID-3** (2025–26) — the dedicated Hudson Bay regional chart (`SGRDRHB`), obtained from the NSIDC G02171 archive (historical; may lag the live window) or directly from CIS for the current window (exact access path to confirm at implementation). Vector data (polygons) in SIGRID-3 shapefile format, with total concentration and other egg-code attributes per polygon; rasterised to a single-band eleven-class COG at ingest (see Format Conversions).
 
 **ICESat-2 ATL07/ATL10** — pulled from the NSIDC DAAC via `icepyx` or the Earthdata STAC API. Granule selection filtered to the study area and temporal window. Used as a visualisation overlay layer and as a candidate supplementary label source for 2025–26 retraining.
 
@@ -167,7 +167,7 @@ This collection is used at two distinct points in the pipeline: at Stage 3, the 
 
 ### Dual-Asset Pattern for Vector Data
 
-Vector datasets (USNIC ice charts, ICESat-2 tracks) are stored with two assets on each STAC item, separating analytical and visualisation concerns:
+Vector datasets (ICESat-2 tracks) are stored with two assets on each STAC item, separating analytical and visualisation concerns:
 
 - **`data` asset** — GeoParquet format, EPSG:3978 (analytical CRS). This is the asset consumed by the project pipeline for label rasterisation, area-weighted polygon averaging, and spatial joins. All area and distance calculations are performed against this asset.
 - **`visual` asset** — PMTiles format, Web Mercator (EPSG:3857). This is the asset served to MapLibre for display. Generated by `tippecanoe` from WGS84 GeoJSON at ingest time.
@@ -181,7 +181,7 @@ Both assets are registered on the same STAC item with the same spatiotemporal me
 | Sentinel-1 | SAFE / GeoTIFF | COG (EPSG:3978) | — | Apply NERSC noise correction before COG conversion; ensure radiometric calibration |
 | ERA5 | NetCDF / GRIB | COG (EPSG:3978) | — | Store on a fixed canonical ~31 km grid (native ERA5 0.25° resolution, one grid shared across all six variables), clipped to study area; resample to the 320m patch grid at inference feature-assembly; one COG per variable per timestep |
 | AMSR2 | HDF5 (L1R swath) | COG (EPSG:3978, fixed 2 km canonical grid matching AI4Arctic Table 1) | — | Resample L1R brightness-temperature swaths to a regular coarse grid at ingest; resample to the 320 m patch grid at inference feature-assembly (Gaussian-weighted, matching AI4Arctic) |
-| USNIC | Shapefile / GeoJSON | GeoParquet (EPSG:3978) | PMTiles (EPSG:3857) | Preserve CT codes and other concentration attributes in both assets |
+| CIS ice charts | SIGRID-3 shapefile | COG (EPSG:3978, 320m) | — | Rasterise CT to eleven-class (0–10) on the canonical 320m grid via the pure-cell / area-weighted midpoint method (see `prescient_ice_training_strategy.md`); single band; retain raw SIGRID-3 in S3 |
 | ICESat-2 | HDF5 | GeoParquet (EPSG:3978) | PMTiles (EPSG:3857) | Convert transect points/lines to GeoJSON as intermediate step |
 | HLS | COG (already) | COG (EPSG:3978) | — | Reproject/clip to study area if needed |
 
@@ -192,11 +192,11 @@ Each source has its own ingestion workflow. The initial ingestion is a bulk oper
 1. **Create STAC collection** (once per dataset) — define and register a STAC collection for each data source before ingesting items. Each dataset maps to one collection; items are registered as members of that collection. Collection metadata includes spatial and temporal extent, license, and a description of the data source.
 2. **Convert** — run format conversion. For rasters: GDAL to produce EPSG:3978 COGs, with Sentinel-1 receiving NERSC noise correction prior to conversion. For vectors: reproject source to EPSG:3978 and write GeoParquet (`data` asset); convert to WGS84 GeoJSON and run `tippecanoe` for the PMTiles `visual` asset.
 3. **Validate** — verify output geometry, CRS, nodata values, and COG/PMTiles/GeoParquet compliance.
-4. **Create STAC item** — generate a STAC item JSON with spatial and temporal metadata, asset hrefs pointing to S3 for both assets (where applicable), and any source-specific properties (e.g., Sentinel-1 polarisation and noise correction applied, USNIC chart validity date). Bounding box in WGS84. A thumbnail asset (PNG, visualised representation of the data) should also be generated and registered on each item; Prescient supports thumbnail assets for catalog browsing purposes.
+4. **Create STAC item** — generate a STAC item JSON with spatial and temporal metadata, asset hrefs pointing to S3 for both assets (where applicable), and any source-specific properties (e.g., Sentinel-1 polarisation and noise correction applied, CIS chart validity date). Bounding box in WGS84. A thumbnail asset (PNG, visualised representation of the data) should also be generated and registered on each item; Prescient supports thumbnail assets for catalog browsing purposes.
 5. **Register** — register the STAC item and its collection with Prescient. The exact registration mechanism (API, direct database insertion, or other tooling) is to be confirmed once the Prescient workflow is better understood; the output of this step is a STAC item correctly associated with its parent collection in the Prescient catalog.
 6. **Upload** — copy converted assets to the S3 bucket backing the Prescient catalog.
 
-**Infrastructure**: Lambda handles lightweight conversions (ERA5, HLS, STAC item creation). Batch handles heavy conversions (Sentinel-1 GRD processing with NERSC noise correction, USNIC PMTiles generation via `tippecanoe` for large Arctic-wide charts). Step Functions orchestrates each per-source workflow with retry logic and pipeline state visibility.
+**Infrastructure**: Lambda handles lightweight conversions (ERA5, HLS, CIS chart rasterisation, STAC item creation). Batch handles heavy conversions (Sentinel-1 GRD processing with NERSC noise correction). Step Functions orchestrates each per-source workflow with retry logic and pipeline state visibility.
 
 For initial development, all of this runs locally as Python scripts. The GDAL, `tippecanoe`, `geopandas`, `pystac`, and NERSC noise correction tooling all run without AWS dependencies; migrating to Lambda/Batch is straightforward once the conversion logic is stable.
 
@@ -238,7 +238,7 @@ The training stage assembles (patch token, label) pairs and trains the downstrea
 
 ### Training Dataset Assembly (2025–26 Retraining Path)
 
-The same logic applies if the 2025–26 Hudson Bay data is used for retraining, with two differences. First, Sentinel-1, AMSR2, ERA5, and USNIC chart data are queried from Prescient rather than pulled from a co-registered NetCDF — temporal alignment must be performed during pair assembly (24-hour baseline window, ERA5-adaptive tightening; see `prescient_ice_training_strategy.md`). Second, ICESat-2 anchor points become a candidate supplementary label source: where coincident tracks are available within a 2–4 hour window of the SAR acquisition, retrieve the GeoParquet `data` asset for the track item and extract anchor point labels (lead detections → class 0, consolidated freeboard → class 10).
+The same logic applies if the 2025–26 Hudson Bay data is used for retraining, with two differences. First, Sentinel-1, AMSR2, ERA5, and CIS chart data are queried from Prescient rather than pulled from a co-registered NetCDF — temporal alignment must be performed during pair assembly (24-hour baseline window, ERA5-adaptive tightening; see `prescient_ice_training_strategy.md`). Second, ICESat-2 anchor points become a candidate supplementary label source: where coincident tracks are available within a 2–4 hour window of the SAR acquisition, retrieve the GeoParquet `data` asset for the track item and extract anchor point labels (lead detections → class 0, consolidated freeboard → class 10).
 
 ### Downstream Classifier Training
 
@@ -254,7 +254,7 @@ Model artefacts (trained model, feature importance outputs, validation metrics i
 
 ## Stage 5: Inference
 
-The inference pipeline applies the trained classifier to new Sentinel-1 scenes and delivers 320m SIC class grids back into Prescient as a derived product. Inference is the primary use of the 2025–26 Hudson Bay data: trained on AI4Arctic, the model is run on 2025–26 Sentinel-1 scenes to produce SIC outputs, with prospective evaluation comparing those outputs to USNIC charts for the same period.
+The inference pipeline applies the trained classifier to new Sentinel-1 scenes and delivers 320m SIC class grids back into Prescient as a derived product. Inference is the primary use of the 2025–26 Hudson Bay data: trained on AI4Arctic, the model is run on 2025–26 Sentinel-1 scenes to produce SIC outputs, with prospective evaluation comparing those outputs to CIS charts for the same period.
 
 ### Inference Workflow
 
@@ -279,7 +279,7 @@ The visualization interface displays:
 
 - **SIC output** (primary) — the model-predicted 320m SIC class grid, styled with a discrete eleven-step colour ramp (e.g. blue for class 0 / open water through white for class 10 / full ice cover). Optional per-class probability layers for uncertainty visualisation.
 - **Source SAR** — the Sentinel-1 backscatter imagery underlying the prediction, enabling analysts to cross-check the model's output against the raw input signal.
-- **USNIC ice charts** — the polygon-based operational charts, served from the PMTiles `visual` asset, providing a direct comparison product for prospective evaluation.
+- **CIS ice charts** — the rasterised chart product, served as a COG via TiTiler, providing a direct comparison product for prospective evaluation on the same grid as the SIC output.
 - **HLS optical** — cloud-free optical context imagery for seasons and regions where it is available.
 - **ICESat-2 tracks** — track transects served from the PMTiles `visual` asset, overlaid as an independent physical validation reference. Lead detections and significant freeboard measurements provide point-level corroboration of model predictions at the extremes of the class spectrum.
 
@@ -294,7 +294,7 @@ Layer toggling, opacity control, and temporal navigation (stepping through dates
 | Collection | Format | CRS | Description |
 |---|---|---|---|
 | `sentinel-1-sar` | COG | EPSG:3978 | Sentinel-1 EW GRD scenes over study area, NERSC noise correction applied |
-| `usnic-ice-charts` | GeoParquet + PMTiles | EPSG:3978 / EPSG:3857 | USNIC weekly Arctic ice concentration polygons (dual asset) |
+| `cis-ice-charts` | COG | EPSG:3978 | CIS Hudson Bay weekly regional charts, rasterised to eleven-class SIC (0–10) on the canonical 320m grid |
 | `era5-ancillary` | COG | EPSG:3978 | ERA5 surface variables (temperature, wind, pressure) |
 | `amsr2` | COG | EPSG:3978 | AMSR2 passive-microwave brightness temperature (JAXA L1R), stored on a fixed 2 km canonical grid matching AI4Arctic Table 1; resampled to the 320m patch grid at inference feature-assembly |
 | `icesat2-tracks` | GeoParquet + PMTiles | EPSG:3978 / EPSG:3857 | ICESat-2 freeboard and lead detection transects (dual asset) |

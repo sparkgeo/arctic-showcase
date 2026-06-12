@@ -20,7 +20,7 @@ The minimal scaffolding both tracks depend on. Precedes substantive work on eith
 ### P0.1 — S3 prefix layout
 
 - **Inputs:** Existing project S3 bucket (record the actual bucket name here); collection inventory from `prescient_ice_pipeline_architecture.md` collections table.
-- **Outputs:** Documented prefix convention recording the bucket name and covering: the AI4Arctic raw training dataset; source datasets (`land-mask`, `sentinel-1`, `amsr2`, `era5`, `usnic-charts`); derived products (`clay-embeddings`); and training artefacts (normalisation statistics, GeoParquet tables, trained models).
+- **Outputs:** Documented prefix convention recording the bucket name and covering: the AI4Arctic raw training dataset; source datasets (`land-mask`, `sentinel-1`, `amsr2`, `era5`, `cis-ice-charts`); derived products (`clay-embeddings`); and training artefacts (normalisation statistics, GeoParquet tables, trained models).
 - **Dependencies:** None.
 - **Done when:** A written prefix scheme exists, names the bucket, and lets both tracks resolve where any artefact reads from or writes to without ambiguity.
 - **Notes:** Both tracks touch S3 — Track A for Prescient assets, Track B for AI4Arctic data, embeddings, tables, and models — so a single agreed layout prevents the two tracks from diverging on paths. The AI4Arctic dataset is included because the student reads it directly from S3.
@@ -71,13 +71,13 @@ Recommended order. A1 establishes the canonical grid; A2–A3 establish the inge
 - **Done when:** CDSE scene availability over the study window is confirmed; a representative scene is NERSC-corrected, written to COG on the canonical grid, registered, and renders in MapLibre; the corrected HV channel is sanity-checked against expected backscatter ranges.
 - **Notes:** NERSC correction is a pre-COG step (read ESA-corrected GRD → apply NERSC → write COG), required so the 2025–26 inference input distribution matches the AI4Arctic training distribution; HV is where residual noise matters most. Land masking is left to Stage 3 / Stage 5 so the source COG stays a faithful record and the mask can be revised without re-ingest. CDSE catalogue verification is the first sub-step — it gates the rest of the task.
 
-### A5 — USNIC ice chart ingest
+### A5 — CIS ice chart ingest
 
-- **Inputs:** USNIC charts (SIGRID-3) over the study window; `tippecanoe`; vector collection template (A2).
-- **Outputs:** Per-chart STAC items in the `usnic-charts` collection, each with a `data` asset (GeoParquet, EPSG:3978) and a `visual` asset (PMTiles, EPSG:3857), preserving concentration attributes (CT codes) in both.
-- **Dependencies:** P0.1, A2, A3.
-- **Done when:** A chart ingests to both assets; the GeoParquet asset is spatially valid in EPSG:3978; the PMTiles asset renders in MapLibre; concentration attributes survive the round-trip in both.
-- **Notes:** First substantive exercise of the dual-asset vector pattern (GeoParquet for analysis, PMTiles via `tippecanoe` for display). The same pattern carries forward to any later vector collection (e.g. ICESat-2 tracks). USNIC charts are the primary evaluation reference layer for the inference product.
+- **Inputs:** CIS Hudson Bay weekly regional charts (SIGRID-3) over the study window; the canonical grid (A1); the label-rasterisation method (`prescient_ice_training_strategy.md`); raster collection template (A2).
+- **Outputs:** Per-chart STAC items in the `cis-ice-charts` collection, each a single-band COG (EPSG:3978, canonical 320m grid) carrying total concentration as the eleven-class value (0–10 tenths); the raw SIGRID-3 source retained in S3.
+- **Dependencies:** P0.1, A1, A2, A3.
+- **Done when:** A chart rasterises to a COG on the canonical 320m grid via the pure-cell / area-weighted midpoint method; the COG is spatially valid in EPSG:3978 and aligns cell-for-cell with the SIC product grid; it renders in MapLibre via TiTiler; CT values spot-check correctly against the source polygons; the current-data access path (NSIDC G02171 archive vs direct CIS) is confirmed for the 2025–26 window.
+- **Notes:** Charts are rasterised at ingest rather than stored as vectors so the evaluation reference shares the SIC product's canonical 320m grid, making prospective evaluation a direct cell-to-cell comparison with no spatial join; this reuses the label-rasterisation logic from the training path (`prescient_ice_training_strategy.md`). The dual-asset vector pattern is exercised instead by the ICESat-2 track collection. CIS charts are the primary evaluation reference for the inference product.
 
 ### A6 — AMSR2 L1R ingest
 
@@ -106,9 +106,9 @@ Recommended order. A1 establishes the canonical grid; A2–A3 establish the inge
 ### A9 — Inference feature assembly, classification, and SIC product
 
 - **Inputs:** Patch-token / class-token embeddings (A8); AMSR2 on its 2 km canonical grid (A6) and ERA5 on its ~31 km canonical grid (A7); distance-to-land (A3, Band 2); the canonical 40m grid (A1) as patch-grid basis and resample target; the trained classifier selected from B5; valid-fraction grids (A8).
-- **Outputs:** A per-scene SIC product COG on the canonical grid at 320m (eleven-class ordinal, 0–10 tenths), land-masked at Stage 5, registered in Prescient for MapLibre display and comparison against USNIC charts (A5).
+- **Outputs:** A per-scene SIC product COG on the canonical grid at 320m (eleven-class ordinal, 0–10 tenths), land-masked at Stage 5, registered in Prescient for MapLibre display and comparison against CIS charts (A5). Where overlapping edge-chip patches claim the same canonical cell, predictions are reconciled per the reconciliation rule (see § Open questions).
 - **Dependencies:** A8, A6, A7, A3, A5, A1, **B5** (trained model), and the feature contract (shared with B4).
-- **Done when:** AMSR2 is resampled from its 2 km grid to the 320m patch grid (Gaussian-weighted, matching AI4Arctic's 2 km → SAR-grain step) and ERA5 from its canonical grid to the patch grid; the inference feature vector reproduces the feature-contract schema and column order exactly (the same assembly B4 produces on the training side); a scene classifies end-to-end; the SIC product renders and visually aligns with the corresponding USNIC chart; sub-threshold valid-fraction patches are excluded.
+- **Done when:** AMSR2 is resampled from its 2 km grid to the 320m patch grid (Gaussian-weighted, matching AI4Arctic's 2 km → SAR-grain step) and ERA5 from its canonical grid to the patch grid; the inference feature vector reproduces the feature-contract schema and column order exactly (the same assembly B4 produces on the training side); a scene classifies end-to-end; the SIC product renders and aligns cell-for-cell with the corresponding CIS chart COG; sub-threshold valid-fraction patches are excluded.
 - **Notes:** Both AMSR2 and ERA5 are resampled from their own canonical coarse grids to the patch grid here — the single place the 40m analytical grid is applied to those two datasets. The per-patch valid-fraction threshold is configurable and decoupled from encoding, so it can be tuned without re-running A8.
 
 ---
@@ -180,6 +180,7 @@ Looser, informational edges (not blocking): the ingestion logic you work out in 
 
 - **Does Prescient use PGStac?** Unconfirmed. Affects the registration interface assumed by A2/A3; A3's land-mask round-trip will surface the actual mechanism. STAC collection validation (A2) is deliberately tool-based and interface-agnostic so the templates hold either way. Mirror this question into `prescient_ice_index.md` Open Questions when committing.
 - **ERA5 ancillary resampling method.** The inference-time resampling of ERA5 to the patch grid (A9) must match the method AI4Arctic used to co-register it onto the SAR grid, or train/inference parity is lost. AMSR2 is well-pinned — AI4Arctic used Gaussian-weighted `pyresample` interpolation onto a 2 km grid (manual Table 1), which A6/A9 reproduce. ERA5's regridding method (likely bilinear) is to be confirmed against the AI4Arctic dataset manual. Resolving this may warrant pinning the method explicitly in the feature contract.
+- **Edge-patch prediction reconciliation rule.** The overlapping-edge-chip placement (the final chip in each row and column shifted backward to align with the scene edge) produces patch predictions that can claim the same canonical 320m cell when the SIC product is assembled (A9 / Stage 5). The reconciliation rule (last-write-wins, mean, or highest valid-fraction) is unspecified and must be fixed before product assembly. Mirror this question into `prescient_ice_index.md` Open Questions.
 
 ---
 

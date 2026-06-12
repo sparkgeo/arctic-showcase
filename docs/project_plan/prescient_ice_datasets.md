@@ -18,7 +18,7 @@ Each dataset entry is tagged with a suitability category:
 | AMSR2 L1R brightness temperature | Model input | Passive-microwave ancillary feature; via AI4Arctic bundle for training, via JAXA G-Portal for 2025–26 | `amsr2` |
 | ERA5 Single Levels | Model input | Atmospheric feature; via AI4Arctic for training, via CDS for 2025–26; also drives temporal alignment filter | `era5-ancillary` |
 | Clay v1.5 patch tokens | Model input | SAR patch token grids (self-computed, 32×32 × 1024 per chip; class token chip embedding stored alongside) | `clay-embeddings` |
-| USNIC weekly SIGRID-3 | Supplemental | 2025–26 evaluation label source; Prescient showcase ingest | `usnic-ice-charts` |
+| CIS Hudson Bay weekly regional SIGRID-3 | Supplemental | 2025–26 evaluation label source; Prescient showcase ingest | `cis-ice-charts` |
 | ICESat-2 ATL07/ATL10 | Supplemental | Visualisation validation overlay; candidate 2025–26 supplementary labels | `icesat2-tracks` |
 | HLS L30/S30 | Supplemental | Optical validation (seasonal); visual context layer | `hls-optical` |
 | PM SIC CDR G02202 | Supplemental | Long-term climate context; Prescient showcase | `pm-sic-cdr` |
@@ -139,26 +139,21 @@ In Phase 2, end-to-end fine-tuning of Clay with a task-specific classification h
 
 These datasets are not used as model inputs or training labels. They are ingested into Prescient as STAC collections to support visualisation, independent validation, or showcase narrative.
 
-### USNIC Weekly Arctic Ice Charts
+### CIS Hudson Bay Regional Ice Charts
 
 **Category:** Supplemental. Label source for 2025–26 Hudson Bay prospective evaluation and a Prescient showcase ingest example. Not the primary training label source for model development.
 
-The US National Ice Center produces operational sea ice analyses and forecasts for Arctic waters as a fully integrated multi-agency partnership (US Navy, NOAA, US Coast Guard). The core USNIC analysis is the weekly hemispheric Arctic chart, produced through manual interpretation of SAR imagery — primarily Sentinel-1 and RADARSAT — and distributed in SIGRID-3 shapefile format. Each polygon carries total ice concentration, partial concentrations by ice type, stage of development, and ice form attributes.
+The Canadian Ice Service produces operational sea ice analyses for Canadian waters through manual interpretation of SAR imagery — primarily Sentinel-1 and RADARSAT. For the study area the relevant product is the CIS Hudson Bay weekly regional chart (SIGRID-3 shapefile, filename pattern `cis_SGRDRHB_YYYYMMDD_pl_a`), a dedicated regional analysis published approximately weekly at roughly 1:4,000,000 scale. Each polygon carries total ice concentration (CT), partial concentrations by ice type, stage of development, and ice form, following WMO terminology.
 
-A confirmed key finding: **USNIC weekly Arctic charts incorporate CIS (Canadian Ice Service) analysis for Canadian territorial waters.** CIS analysts produce regional sea ice charts for Canadian waters, which USNIC imports, checks for discrepancies against its own analysis, and integrates into the hemispheric product. This means USNIC alone provides complete Canadian Arctic coverage for the purposes of label generation — it is not necessary to separately ingest CIS charts for the same time period. The two products are not independent for overlapping Canadian waters.
+CIS is the authoritative Canadian source and is source-consistent with the project's primary training labels: the AI4Arctic CIS/DMI charts are drawn by the same analyst pipeline, and the CIS Hudson Bay regional chart is the upstream source for the Canadian portion of the USNIC hemispheric Arctic chart. Using CIS directly avoids the USNIC hemispheric integration layer (which for this region merely re-imports CIS analysis), gives a weekly rather than fortnightly cadence (USNIC moved its SIGRID-3 archive product to bi-weekly publication in April 2022), and provides a dedicated regional product rather than a clip from a hemispheric chart.
 
-USNIC's role in the project has been revised. AI4Arctic is the primary training and evaluation dataset, and AI4Arctic's CIS/DMI chart labels — which incorporate the same analyst pipeline — supersede USNIC for primary training purposes. USNIC remains relevant for two purposes:
+**Ingested as a rasterised COG, not a vector asset.** The charts are rasterised at ingest to a single-band COG on the canonical 320m grid in EPSG:3978, encoding total concentration as the eleven-class value (0–10 tenths), using the same pure-cell / area-weighted midpoint-rounding method specified for training-label preparation (see `prescient_ice_training_strategy.md`). This places the evaluation reference on the same grid as the SIC product, making prospective evaluation a direct cell-to-cell comparison without a spatial join, and routes the charts through Prescient's mature raster ingest path. The raw SIGRID-3 source is retained in S3 so additional attributes or a vector asset can be derived later if needed. The dual-asset vector pattern is exercised instead by the ICESat-2 track collection. The richer SIGRID-3 attributes beyond total concentration are not used analytically in the current scope, which targets total SIC only.
 
-1. **2025–26 Hudson Bay prospective evaluation.** USNIC weekly Arctic charts covering October 2025 – January 2026 are used as labels for evaluating model predictions on the prospective Hudson Bay dataset, and as a candidate label source if that data is incorporated into a retraining run.
-2. **Prescient showcase ingest.** The USNIC chart ingestion pipeline demonstrates Prescient's dual-asset vector handling (GeoParquet for analytical use, PMTiles for visualisation), Arctic-wide PMTiles tiling, and CIS-derived attribute preservation.
+Two other CIS products were not selected for the analytical asset: the daily Hudson Bay charts (Northern/Southern, distributed as GIF raster only) and the per-scene image-analysis charts (the family AI4Arctic bundles as training labels, not readily available as standalone vector for the current window). Known data-quality issues (erroneous polygon attribute codes) exist in some charts and should be filtered during rasterisation.
 
-For label generation, the weekly SIGRID-3 vector charts (NSIDC archive G10013) are the appropriate product, not the 10 km gridded derivative product (G10033), which discards the spatial detail of the original vector data. Known data quality issues exist in some historical charts (erroneous polygon attribute codes); these should be filtered during label preparation.
-
-A temporal note: USNIC transitioned from weekly to bi-weekly publishing frequency for the SIGRID-3 archive product in April 2022. The 2025–26 window is in the bi-weekly era; chart coverage cadence is therefore approximately fortnightly rather than weekly.
-
-**Products:** Weekly/bi-weekly Arctic analysis, SIGRID-3 shapefiles (NSIDC G10013, 2003–present)  
-**Access:** NSIDC via FTP/HTTPS or `earthaccess`; current charts directly from `usicecenter.gov`  
-**Prescient collection:** `usnic-ice-charts` (GeoParquet + PMTiles, dual asset)
+**Products:** CIS Hudson Bay weekly regional charts, SIGRID-3 (`SGRDRHB`); historical archive at NSIDC G02171 (2006–present)  
+**Access:** NSIDC G02171 via FTP/HTTPS (historical; may lag the live window); current 2025–26 charts directly from CIS (`ice-glaces.ec.gc.ca` archive) — exact access path to confirm at implementation  
+**Prescient collection:** `cis-ice-charts` (COG, single-band eleven-class CT on the canonical 320m grid)
 
 ---
 
@@ -171,7 +166,7 @@ ICESat-2 carries the ATLAS photon-counting lidar instrument, providing precise a
 ICESat-2's role in the project has been revised. The original plan was to use ICESat-2 as supplementary training labels — physically-grounded anchor points at the extremes of the concentration spectrum, complementing analyst-derived polygon labels. With AI4Arctic's 513 training scenes now the primary training source, the anchor-point motivation (boosting label confidence in a small training set) is materially weakened. ICESat-2 is retained for two revised purposes:
 
 1. **Prospective validation overlay.** ICESat-2 tracks overlaid on SIC output in the MapLibre viewer provide an independent, physically-grounded reference for analysts reviewing model predictions. Where a track crosses a model-predicted class-10 region and ATL10 shows significant freeboard, the prediction is corroborated; disagreements flag investigation. This is the primary use of ICESat-2 in the project as currently scoped.
-2. **Candidate 2025–26 supplementary labels.** If prospective evaluation reveals shortcomings that warrant incorporating 2025–26 Hudson Bay data into a retraining run, ICESat-2 anchor points become attractive supplementary labels alongside USNIC charts, given that labelled volume from charts alone is likely modest. Lead detections → class 0, consolidated freeboard → class 10. Tight temporal coincidence window (2–4 hours) given ICESat-2's UTC-precise timestamps.
+2. **Candidate 2025–26 supplementary labels.** If prospective evaluation reveals shortcomings that warrant incorporating 2025–26 Hudson Bay data into a retraining run, ICESat-2 anchor points become attractive supplementary labels alongside CIS charts, given that labelled volume from charts alone is likely modest. Lead detections → class 0, consolidated freeboard → class 10. Tight temporal coincidence window (2–4 hours) given ICESat-2's UTC-precise timestamps.
 
 ICESat-2's primary limitation is spatial sparsity: it provides transect observations, not spatially continuous coverage. On any given day, only a narrow set of ground tracks pass over the study area. Coverage accumulates over the 91-day repeat cycle. Lidar also cannot penetrate cloud cover, reducing useful Arctic coverage to below ~40% during and after spring melt onset.
 
