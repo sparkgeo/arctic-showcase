@@ -135,7 +135,7 @@ Each data source is pulled from its upstream provider on an as-needed basis. For
 
 **ERA5 Single Levels** (2025–26) — downloaded from the Copernicus Climate Data Store (CDS) using the `cdsapi` Python client. Variables: 2m air temperature, 10m u/v wind components, mean sea level pressure. Downloaded as NetCDF or GRIB, regridded to the study area.
 
-**AMSR2 L1R brightness temperature** (2025–26) — accessed from JAXA's G-Portal, the same product family AI4Arctic uses for training. HDF5 Level-1R swaths carrying all seven AMSR2 bands; which channels are retained as features is deferred to implementation (informed by feature-importance analysis). Stored at native coarse grid and resampled to the patch grid at inference.
+**AMSR2 L1R brightness temperature** (2025–26) — accessed from JAXA's G-Portal, the same product family AI4Arctic uses for training. HDF5 Level-1R swaths carrying all seven AMSR2 bands; which channels are retained as features is deferred to implementation (informed by feature-importance analysis). Stored on a fixed 2 km canonical grid matching AI4Arctic Table 1 and resampled to the patch grid at inference.
 
 **USNIC weekly Arctic SIGRID-3** (2025–26) — downloaded from the USNIC Arctic archive. Vector data (polygons) in ESRI Shapefile or GeoJSON format, with concentration attributes per polygon.
 
@@ -179,8 +179,8 @@ Both assets are registered on the same STAC item with the same spatiotemporal me
 | Source | Input Format | `data` Asset | `visual` Asset | Notes |
 |---|---|---|---|---|
 | Sentinel-1 | SAFE / GeoTIFF | COG (EPSG:3978) | — | Apply NERSC noise correction before COG conversion; ensure radiometric calibration |
-| ERA5 | NetCDF / GRIB | COG (EPSG:3978) | — | Regrid to study area; one COG per variable per timestep |
-| AMSR2 | HDF5 (L1R swath) | COG (EPSG:3978, native coarse grid) | — | Resample L1R brightness-temperature swaths to a regular coarse grid at ingest; resample to the 320 m patch grid at inference feature-assembly (Gaussian-weighted, matching AI4Arctic) |
+| ERA5 | NetCDF / GRIB | COG (EPSG:3978) | — | Store on a fixed canonical ~31 km grid (native ERA5 0.25° resolution, one grid shared across all six variables), clipped to study area; resample to the 320m patch grid at inference feature-assembly; one COG per variable per timestep |
+| AMSR2 | HDF5 (L1R swath) | COG (EPSG:3978, fixed 2 km canonical grid matching AI4Arctic Table 1) | — | Resample L1R brightness-temperature swaths to a regular coarse grid at ingest; resample to the 320 m patch grid at inference feature-assembly (Gaussian-weighted, matching AI4Arctic) |
 | USNIC | Shapefile / GeoJSON | GeoParquet (EPSG:3978) | PMTiles (EPSG:3857) | Preserve CT codes and other concentration attributes in both assets |
 | ICESat-2 | HDF5 | GeoParquet (EPSG:3978) | PMTiles (EPSG:3857) | Convert transect points/lines to GeoJSON as intermediate step |
 | HLS | COG (already) | COG (EPSG:3978) | — | Reproject/clip to study area if needed |
@@ -296,7 +296,7 @@ Layer toggling, opacity control, and temporal navigation (stepping through dates
 | `sentinel-1-sar` | COG | EPSG:3978 | Sentinel-1 EW GRD scenes over study area, NERSC noise correction applied |
 | `usnic-ice-charts` | GeoParquet + PMTiles | EPSG:3978 / EPSG:3857 | USNIC weekly Arctic ice concentration polygons (dual asset) |
 | `era5-ancillary` | COG | EPSG:3978 | ERA5 surface variables (temperature, wind, pressure) |
-| `amsr2` | COG | EPSG:3978 | AMSR2 passive-microwave brightness temperature (JAXA L1R), stored at native coarse grid and resampled to the patch grid at inference |
+| `amsr2` | COG | EPSG:3978 | AMSR2 passive-microwave brightness temperature (JAXA L1R), stored on a fixed 2 km canonical grid matching AI4Arctic Table 1; resampled to the 320m patch grid at inference feature-assembly |
 | `icesat2-tracks` | GeoParquet + PMTiles | EPSG:3978 / EPSG:3857 | ICESat-2 freeboard and lead detection transects (dual asset) |
 | `hls-optical` | COG | EPSG:3978 | Harmonized Landsat Sentinel-2 optical imagery |
 | `land-mask` | COG (2-band) | EPSG:3978 | Static land/water mask and distance-to-land index over the Hudson Bay study area, derived from NRCan CanVec Land Features at 1:50,000 (Open Government Licence – Canada); Band 1: binary uint8 land/water; Band 2: distance-to-land index uint8 0–41 (AI4Arctic Table 7 encoding); 40m; applied at Stage 3 chip preparation and Stage 5 post-processing |
