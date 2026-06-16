@@ -70,6 +70,9 @@ The January 2018 scene is predominantly ice-covered, which is consistent with wi
 
 All correlation analysis uses **block averaging** to bring SAR down to the 2 km AMSR2 grid: each output value is the mean of a ~25×25 pixel SAR patch. This matters because correlating a single noisy 160 m pixel against a 2 km averaged brightness temperature understates the true relationship — the noise in a single pixel inflates variance without contributing any shared signal. Block averaging suppresses speckle and makes the spatial scales physically comparable.
 
+
+![alt text](image.png)
+
 **Input–input correlations (single scene and averaged across 24 scenes):**
 - Brightness temperatures are strongly intercorrelated (r > 0.9 between adjacent channels). They are all measuring the same underlying surface emission at slightly different frequencies.
 - T2m (air temperature) and SKT (skin temperature) are nearly identical (r ≈ 0.99). They can be treated as redundant.
@@ -84,6 +87,21 @@ All correlation analysis uses **block averaging** to bring SAR down to the 2 km 
 - BT channels and SAR both show meaningful correlation with ice concentration when compared at the same 2 km spatial scale.
 - V-polarisation BT channels tend to have stronger SIC correlation than H-pol at the same frequency, consistent with their higher sensitivity to surface emissivity differences between ice and water.
 
+
+### Seasonal feature distributions
+
+The 24-scene sample (2 scenes per month, drawn from 2018–2021) was used to plot how two key features — SAR HH backscatter and BT 36.5V brightness temperature — shift across the calendar year.
+
+![alt text](image-1.png)
+
+**BT 36.5V** is one of the best indicators of sea ice in the AMSR2 suite. Sea ice emits microwave radiation much more strongly than open water at this frequency (emissivity ~0.92 vs ~0.65), so higher brightness temperatures mean more ice coverage. Winter months show higher, tighter values; summer months show lower values with more spread as melting introduces a patchwork of ice and open water within each scene.
+
+**SAR HH** tends to be higher and more consistent in winter, when consolidated ice dominates (rougher surface, stronger volume scattering). Summer months show lower or more variable values as open water appears — a near-specular, low-backscatter surface.
+
+Since only 2 scenes per month are in the sample, each box in the plot represents just two points. The plots are best read as a directional trend rather than a full statistical distribution.
+
+**Why this matters for training:** both features shift substantially between seasons. If the train/validation split is not stratified by month, a model could learn seasonal proxies (e.g. "low BT 36.5V → winter → high ice") instead of the actual surface physics. Seasons should be balanced on both sides of any split.
+
 ### Incidence angle effect on SAR backscatter
 
 SAR backscatter depends on incidence angle — steeper viewing angles (near range, ~19°) produce stronger returns than shallower angles (far range, ~47°), independently of what's on the surface. The RTT `sar_incidenceangle` image makes it possible to quantify this directly. A clear linear trend is visible in both HH and HV: the slope represents a geometric effect that the model will need to account for, either by including incidence angle as a feature or by correcting the SAR values before training.
@@ -95,30 +113,3 @@ SAR backscatter depends on incidence angle — steeper viewing angles (near rang
 - **475 total training scenes** spanning 2018–2021. Monthly counts are unequal — August and September have roughly twice as many scenes as February and March. This seasonal imbalance means the model will see more open-water and melt-season examples than consolidated winter ice.
 - **`amsr2_swath_map` is all NaN** in the examined scene. When there is no direct AMSR2 overpass, the brightness temperatures come from a gridded interpolation product rather than a direct measurement. The fraction of training scenes in this condition is unknown and worth checking.
 
----
-
-## Remaining gaps
-
-### 1. Seasonal feature distributions
-
-The multi-scene correlation averages across all months but doesn't show how individual feature distributions shift by season. A per-month box plot of SAR HH and BT 6.9V (the AMSR2 channel most sensitive to ice concentration) would reveal whether the model needs to handle large seasonal drift in its inputs.
-
-### 2. Scene geographic coverage
-
-Only one scene is visualised on the map. The filenames include provider codes (`_dmi_`, `_fmi_`, etc.) corresponding to different geographic regions. A map of all 475 scene footprints would show whether training coverage is geographically broad or concentrated in a few areas — geographic imbalance is a common source of poor generalisation.
-
-### 3. AMSR2 swath coverage rate
-
-It is worth counting what fraction of training scenes have `amsr2_swath_map` as all NaN (no direct satellite overpass). If most scenes rely on gridded interpolation, the effective spatial resolution of the BT inputs is lower than the 2 km grid implies.
-
-### 4. Correlation variance across seasons
-
-The Fisher-averaged correlation matrix is a single summary. Comparing winter vs summer matrices separately would show whether the average obscures important structural differences — for example, the SAR–BT relationship likely weakens in summer when melt ponds complicate both signals.
-
-### 5. NaN spatial patterns
-
-NaN values are excluded before analysis but never mapped. For SAR, NaN typically occurs at scene edges and burst boundaries. Knowing the typical NaN fraction per scene, and whether it is spatially systematic, is relevant for deciding how to handle borders during training.
-
-### 6. `distance_map`
-
-This variable (range 0–41 in the raw file) is dropped in RTT without explanation. It likely encodes distance to land or to open water — both physically meaningful for ice behaviour near coastlines. Worth confirming what it represents before accepting its removal from the feature set.
