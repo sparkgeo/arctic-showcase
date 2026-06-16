@@ -71,7 +71,7 @@ The January 2018 scene is predominantly ice-covered, which is consistent with wi
 All correlation analysis uses **block averaging** to bring SAR down to the 2 km AMSR2 grid: each output value is the mean of a ~25×25 pixel SAR patch. This matters because correlating a single noisy 160 m pixel against a 2 km averaged brightness temperature understates the true relationship — the noise in a single pixel inflates variance without contributing any shared signal. Block averaging suppresses speckle and makes the spatial scales physically comparable.
 
 
-![alt text](image.png)
+![alt text](img/correlation_matrix_24_scenes.png)
 
 **Input–input correlations (single scene and averaged across 24 scenes):**
 - Brightness temperatures are strongly intercorrelated (r > 0.9 between adjacent channels). They are all measuring the same underlying surface emission at slightly different frequencies.
@@ -92,7 +92,7 @@ All correlation analysis uses **block averaging** to bring SAR down to the 2 km 
 
 The 24-scene sample (2 scenes per month, drawn from 2018–2021) was used to plot how two key features — SAR HH backscatter and BT 36.5V brightness temperature — shift across the calendar year.
 
-![alt text](image-1.png)
+![alt text](img/seasonal_feature_distribution.png)
 
 **BT 36.5V** is one of the best indicators of sea ice in the AMSR2 suite. Sea ice emits microwave radiation much more strongly than open water at this frequency (emissivity ~0.92 vs ~0.65), so higher brightness temperatures mean more ice coverage. Winter months show higher, tighter values; summer months show lower values with more spread as melting introduces a patchwork of ice and open water within each scene.
 
