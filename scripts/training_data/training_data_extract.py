@@ -9,11 +9,9 @@ from mypy_boto3_s3 import S3Client
 from tqdm import tqdm
 
 DATASETS = {
-    "raw_train": "training_data/ai4arctic/raw_train/",
+    "raw_train": {"input_prefix": "training_data/ai4arctic/raw_train/",
+                  "output_prefix": "training_data/ai4arctic/raw_train/extracted/"},
 }
-
-EXTRACTED_PREFIX_BASE = "training_data/ai4arctic/raw_train/"
-
 
 def s3_key_exists(bucket: str, key: str, s3: S3Client) -> bool:
     try:
@@ -75,7 +73,7 @@ def process_zip(
         extracted_files, desc=f"Uploading {zip_name}", leave=False, unit="file"
     ):
         relative = extracted_path.relative_to(extract_dir)
-        dest_key = f"{EXTRACTED_PREFIX_BASE}{dataset_name}/{relative}"
+        dest_key = f"{DATASETS[dataset_name]['output_prefix']}{relative}"
 
         if s3_key_exists(bucket, dest_key, s3):
             tqdm.write(f"  Skipping {dest_key} (already exists)")
@@ -95,8 +93,8 @@ def main(bucket: str, profile: str | None = None) -> None:
     s3: S3Client = session.client("s3")
 
     all_zips: list[tuple[str, str]] = []
-    for name, prefix in DATASETS.items():
-        keys = list_zip_keys(bucket, prefix, s3)
+    for name, info in DATASETS.items():
+        keys = list_zip_keys(bucket, info["input_prefix"], s3)
         tqdm.write(f"{name}: {len(keys)} zip(s) found")
         all_zips.extend((name, key) for key in keys)
 
