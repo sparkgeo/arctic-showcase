@@ -52,7 +52,7 @@ def chart_cbar(ax, n_classes, chart, cmap="vridis"):
 
 def compute_metrics(true, pred, charts, metrics):
     """
-    Calculates metrics for each chart and the combined score. 
+    Calculates metrics for each chart and the combined score.
     true and pred must be 1d arrays of equal length.
 
     Parameters

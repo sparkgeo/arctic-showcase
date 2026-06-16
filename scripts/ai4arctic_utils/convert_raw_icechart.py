@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Converts polygon icechart in the raw ASIP3 challenge dataset to 
+"""Converts polygon icechart in the raw ASIP3 challenge dataset to
 SIC, SOD and FLOE charts."""
 
 # -- File info -- #
@@ -33,18 +33,18 @@ from utils import (
 
 def convert_polygon_icechart(scene):
     """
-    Original polygon_icechart in ASIP3 scenes consists of 
+    Original polygon_icechart in ASIP3 scenes consists of
     codes to a lookup table `polygon_codes`.
 
-    This function looks up codes and converts them. 
+    This function looks up codes and converts them.
     3 variables in the xr scene are created; SIC, SOD and FLOE.
 
-    For SOD and FLOE the partial sea ice concentration is used to determine whether 
+    For SOD and FLOE the partial sea ice concentration is used to determine whether
     there is a dominant category in a polygon.
 
-    The SOD and FLOE are created using the lookup tables in utils, 
+    The SOD and FLOE are created using the lookup tables in utils,
     which dictate the conversion from ice code to class, As multiple codes can be
-    converted into a single class, these partial concentrations must also be added. 
+    converted into a single class, these partial concentrations must also be added.
     In addition, empty codes, 'not filled values' and unknowns are replaced appropriately.
 
     Parameters
@@ -187,7 +187,7 @@ def convert_polygon_icechart(scene):
     sod = copy.deepcopy(scene["polygon_icechart"].values)
     floe = copy.deepcopy(scene["polygon_icechart"].values)
 
-    # Add partial concentrations when classes have been merged in conversion 
+    # Add partial concentrations when classes have been merged in conversion
     # (see SIC, SOD, FLOE tables).
     tmp_sod_added = converted_codes + sod_partial_add.astype(int)
     tmp_floe_added = converted_codes + floe_partial_add.astype(int)
@@ -201,7 +201,7 @@ def convert_polygon_icechart(scene):
             if np.char.lower(poly_type[1, i]) == "w":
                 sic[code_match] = SIC_LOOKUP[0]
 
-            # Check if there is a class combined normalized partial concentration, 
+            # Check if there is a class combined normalized partial concentration,
             # which is dominant in the polygon.
             if (
                 np.divide(
@@ -218,7 +218,7 @@ def convert_polygon_icechart(scene):
             else:
                 sod[code_match] = ICECHART_NOT_FILLED_VALUE
 
-            # Check if there is a class combined normalized partial concentration, 
+            # Check if there is a class combined normalized partial concentration,
             # which is dominant in the polygon.
             if (
                 np.divide(
