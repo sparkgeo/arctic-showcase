@@ -1,13 +1,13 @@
+import argparse
+import tempfile
 import time
+from pathlib import Path
+
 import boto3
 import botocore.exceptions
 import requests
-import tempfile
-from pathlib import Path
+from mypy_boto3_s3 import S3Client
 from tqdm import tqdm
-
-s3 = boto3.client("s3")
-BUCKET = "prescient-ice-data"
 
 MAX_RETRIES = 5
 RETRY_BACKOFF = 2.0  # seconds, doubles each attempt
@@ -39,12 +39,12 @@ def get_article_id(url: str) -> str:
     return url.rstrip("/").split("/")[-1]
 
 
-def s3_key_exists(bucket: str, key: str) -> bool:
+def s3_key_exists(bucket: str, key: str, s3: S3Client) -> bool:
     try:
         s3.head_object(Bucket=bucket, Key=key)
         return True
     except botocore.exceptions.ClientError as e:
-        if e.response["Error"]["Code"] == "404":
+        if e.response.get("Error", {}).get("Code") == "404":
             return False
         raise
 
@@ -85,13 +85,23 @@ def download_to_local(url: str, local_path: Path, filename: str) -> None:
             if attempt == MAX_RETRIES:
                 raise
             wait = RETRY_BACKOFF * (2 ** (attempt - 1))
-            tqdm.write(f"  Download error on attempt {attempt}/{MAX_RETRIES}: {e}. Retrying in {wait:.0f}s...")
+            tqdm.write(
+                f"  Download error on attempt {attempt}/{MAX_RETRIES}: {e}."
+                f"Retrying in {wait:.0f}s..."
+            )
             if local_path.exists():
                 local_path.unlink()
             time.sleep(wait)
 
 
-def main() -> None:
+def main(bucket: str, profile: str | None = None) -> None:
+    if profile:
+        session = boto3.Session(profile_name=profile)
+    else:
+        session = boto3.Session()
+
+    s3: S3Client = session.client("s3")
+
     dataset_files: dict[str, list[dict]] = {}
     for name, meta in DATASETS.items():
         files = get_file_links(meta["source_url"])
@@ -111,7 +121,7 @@ def main() -> None:
         local_path = download_dir / filename
         s3_key = s3_prefix + filename
 
-        if s3_key_exists(BUCKET, s3_key):
+        if s3_key_exists(bucket, s3_key, s3):
             tqdm.write(f"Skipping {s3_key} (already in S3)")
             continue
 
@@ -126,7 +136,7 @@ def main() -> None:
         ) as ul_pbar:
             s3.upload_file(
                 str(local_path),
-                BUCKET,
+                bucket,
                 s3_key,
                 Callback=lambda n: ul_pbar.update(n),
             )
@@ -135,4 +145,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Download AI4Arctic datasets and upload to S3.")
+    parser.add_argument("--bucket", required=True, help="S3 bucket name to upload files to.")
+    parser.add_argument("--profile", help="AWS CLI profile name to use for authentication.")
+    args = parser.parse_args()
+    bucket = args.bucket
+    profile = args.profile
+
+    main(bucket, profile)
