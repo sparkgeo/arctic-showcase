@@ -66,16 +66,16 @@ The following is applied to both the raw and RTT datasets (detailed in the manua
 - A noise algorithm correction is applied (see ####NERSC Noise Correction)
 - Negative values are replaced using a two step process (see manual page 8).
 
-#### RTT Preprocessing
-The RTT SAR data is additionally processed (Manual page 26). This includes:
-- Downsampling the data from 40 m to 80 m pixel spacing. This is performed using a 2x2 averaging kernel.
-- Normalization of the SAR backscatter data to a range of [-1, 1]
-- Masking is applied to invalidate over-land pixels
-
 #### NERSC Noise Correction
 The noise correction algorithm used on the SAR data is provided by Nansen Environmental and Remote Sensing Center (NERSC) and is considered superior to the standard noise correction provided by ESA.
 
 Sentinel-1 Extra Wide (EW) mode imagery is subject to significant additive thermal noise in the cross-polarization (HV) channel, which produces visible inter-subswath intensity discontinuities. The NERSC denoising algorithm applies a correction that addresses this inter-subswath radiometric bias, producing a more radiometrically consistent HV backscatter product than the standard ESA processing. The methodology is described in: *Thermal Denoising of Cross-Polarized Sentinel-1 Data in Interferometric and Extra Wide Swath Modes*, DOI: 10.1109/TGRS.2021.3131036.
+
+#### SAR RTT Preprocessing
+The RTT SAR data is additionally processed (Manual page 26). This includes:
+- Downsampling the data from 40 m to 80 m pixel spacing. This is performed using a 2x2 averaging kernel.
+- Normalization of SAR backscatter and incidence angle to the range [-1, 1] using per-variable minimum and maximum values. Per-variable statistics (means, standard deviations, and the min/max values used) are available in the `misc/` folder of the [AI4ArcticSeaIceChallenge repository](https://github.com/astokholm/AI4ArcticSeaIceChallenge/tree/main).
+- Masking is applied to invalidate over-land pixels
 
 ### AMSR2 Data
 
@@ -83,28 +83,51 @@ Sentinel-1 Extra Wide (EW) mode imagery is subject to significant additive therm
 
 This section lists the AMSR2 variables included in each dataset, using the same Raw / RTT naming convention as above.
 
-- `btemp_6_9h` / `btemp_6_9h` — AMSR2 brightness temperature at 6.9 GHz, horizontal polarization. Shape ~(200, 209).
-- `btemp_6_9v` / `btemp_6_9v` — AMSR2 brightness temperature at 6.9 GHz, vertical polarization. Shape ~(200, 209).
-- `btemp_7_3h` / `btemp_7_3h` — 7.3 GHz, horizontal polarization.
-- `btemp_7_3v` / `btemp_7_3v` — 7.3 GHz, vertical polarization.
-- `btemp_10_7h` / `btemp_10_7h` — 10.7 GHz, horizontal polarization.
-- `btemp_10_7v` / `btemp_10_7v` — 10.7 GHz, vertical polarization.
-- `btemp_18_7h` / `btemp_18_7h` — 18.7 GHz, horizontal polarization.
-- `btemp_18_7v` / `btemp_18_7v` — 18.7 GHz, vertical polarization.
-- `btemp_23_8h` / `btemp_23_8h` — 23.8 GHz, horizontal polarization.
-- `btemp_23_8v` / `btemp_23_8v` — 23.8 GHz, vertical polarization.
-- `btemp_36_5h` / `btemp_36_5h` — 36.5 GHz, horizontal polarization.
-- `btemp_36_5v` / `btemp_36_5v` — 36.5 GHz, vertical polarization.
-- `btemp_89_0h` / `btemp_89_0h` — 89.0 GHz, horizontal polarization.
-- `btemp_89_0v` / `btemp_89_0v` — 89.0 GHz, vertical polarization.
-- `amsr2_swath_map` / `None` — map indicating which AMSR2 swath pass contributed to each 2 km grid cell. Raw only.
-- `swath_segmentation` / `None` — segmentation of the scene into individual AMSR2 swath passes. Raw only.
+- `btemp_6_9h` / `btemp_6_9h`
+    - AMSR2 brightness temperature at 6.9 GHz, horizontal polarization. 
+    - Shape ~(200, 209)
+- `btemp_6_9v` / `btemp_6_9v`
+    - AMSR2 brightness temperature at 6.9 GHz, vertical polarization. 
+    - Shape ~(200, 209)
+- `btemp_7_3h` / `btemp_7_3h` 
+    - 7.3 GHz, horizontal polarization.
+    - Shape ~(200, 209)
+- `btemp_7_3v` / `btemp_7_3v`
+    - 7.3 GHz, vertical polarization.
+- `btemp_10_7h` / `btemp_10_7h`
+    - 10.7 GHz, horizontal polarization.
+- `btemp_10_7v` / `btemp_10_7v`
+    - 10.7 GHz, vertical polarization.
+- `btemp_18_7h` / `btemp_18_7h`
+    - 18.7 GHz, horizontal polarization.
+- `btemp_18_7v` / `btemp_18_7v`
+    - 18.7 GHz, vertical polarization.
+- `btemp_23_8h` / `btemp_23_8h`
+    - 23.8 GHz, horizontal polarization.
+- `btemp_23_8v` / `btemp_23_8v`
+    - 23.8 GHz, vertical polarization.
+- `btemp_36_5h` / `btemp_36_5h`
+    - 36.5 GHz, horizontal polarization.
+- `btemp_36_5v` / `btemp_36_5v`
+    - 36.5 GHz, vertical polarization.
+- `btemp_89_0h` / `btemp_89_0h`
+    - 89.0 GHz, horizontal polarization.
+- `btemp_89_0v` / `btemp_89_0v`
+    - 89.0 GHz, vertical polarization.
+- `amsr2_swath_map` / `None`
+    - map indicating which AMSR2 swath pass contributed to each 2 km grid cell. Raw only.
+- `swath_segmentation` / `None`
+    - segmentation of the scene into individual AMSR2 swath passes. Raw only.
 
-#### AMSR2 Processing
+#### AMSR2 Preprocessing (both Raw and RTT)
 
 The AMSR2 brightness temperature data is provided at a native resolution of approximately 2 km and is gridded to a 2 km grid aligned to the SAR scene extent. This grid is shared with the ERA5 data. Both the raw and RTT datasets contain the same AMSR2 variables at the same ~(200, 209) shape. In the RTT dataset, values are stored as `float32` rather than the `float64` used in the raw files.
 
 The two raw-only variables (`amsr2_swath_map`, `swath_segmentation`) are not carried through to the RTT dataset. These appear to be auxiliary swath metadata used during the gridding process and are not required as model inputs.
+
+#### AMSR2 RTT Preprocessing
+
+AMSR2 brightness temperature variables are normalized to the range [-1, 1] using per-variable minimum and maximum values in the RTT dataset.
 
 ### ERA5 Data
 
@@ -112,16 +135,26 @@ The two raw-only variables (`amsr2_swath_map`, `swath_segmentation`) are not car
 
 This section lists the ERA5 variables included in each dataset, using the same Raw / RTT naming convention as above. All ERA5 variables share the 2 km grid dimensions ~(200, 209).
 
-- `u10m_rotated` / `u10m_rotated` — eastward component of 10 m wind speed, rotated to align with the SAR scene flight direction.
-- `v10m_rotated` / `v10m_rotated` — northward component of 10 m wind speed, rotated to align with the SAR scene flight direction.
-- `t2m` / `t2m` — 2 m air temperature (K).
-- `skt` / `skt` — skin temperature (K).
-- `tcwv` / `tcwv` — total column water vapour (kg/m²).
-- `tclw` / `tclw` — total column cloud liquid water (kg/m²).
+- `u10m_rotated` / `u10m_rotated`
+    - eastward component of 10 m wind speed, rotated to align with the SAR scene flight direction.
+- `v10m_rotated` / `v10m_rotated`
+    - northward component of 10 m wind speed, rotated to align with the SAR scene flight direction.
+- `t2m` / `t2m`
+    - 2 m air temperature (K).
+- `skt` / `skt`
+    - skin temperature (K).
+- `tcwv` / `tcwv`
+    - total column water vapour (kg/m²).
+- `tclw` / `tclw`
+    - total column cloud liquid water (kg/m²).
 
-#### ERA5 Processing
+#### ERA5 Preprocessing (both Raw and RTT)
 
 ERA5 reanalysis data is sourced from the Copernicus Climate Data Store and resampled to the shared 2 km grid used by the AMSR2 variables. The wind components (`u10m_rotated`, `v10m_rotated`) are rotated from their native geographic orientation to align with the Sentinel-1 satellite flight direction, as noted in the raw file's `geometric_info` attribute. As with the AMSR2 data, values are stored as `float64` in the raw dataset and `float32` in the RTT dataset.
+
+#### ERA5 RTT Preprocessing
+
+ERA5 variables are normalized to the range [-1, 1] using per-variable minimum and maximum values in the RTT dataset.
 
 ### Sea Ice Data
 
@@ -152,7 +185,7 @@ Where the fields follow the SIGRID-3 standard used by operational ice services:
 
 A value of `-9` indicates that a field is not applicable or not reported for that polygon. To recover the sea ice properties for any pixel, look up its `polygon_icechart` value in the `poly_id` field of this table.
 
-#### Sea Ice Data RTT Processing
+#### Sea Ice Data RTT Preprocessing
 
 The RTT label variables (`SIC`, `SOD`, `FLOE`) are derived by remapping the SIGRID-3 encoded values from the `polygon_codes` lookup table to a reduced class scheme. The full conversion tables are defined in Table 8 of the dataset manual (page 27), and are also implemented as lookup dictionaries in `utils.py` in the [AI4ArcticSeaIceChallenge repository](https://github.com/astokholm/AI4ArcticSeaIceChallenge/tree/main) — that file is the authoritative reference for the exact code-to-class mappings.
 
@@ -192,7 +225,7 @@ This section lists the anciliary variables included in each dataset. For each va
     - rtt shape ~(5000x5000)
 
 #### Distance Map Processing
-The `distance_map` variable is generated by computing the per-pixel distance to the nearest land mass, using OpenStreetMap coastlines as the land reference. Pixels are classified into discrete distance bands rather than storing a continuous distance value. The resulting classes encode proximity to land (e.g. near-coast, open water), which is useful as a model input since SAR backscatter near coastlines can be contaminated by land returns. In the RTT dataset, pixels classified as over-land are masked out (set to a fill value) as part of the SAR preprocessing step described in `#### RTT Preprocessing`. The full classification scheme and band boundaries are defined in the dataset manual.
+The `distance_map` variable is generated by computing the per-pixel distance to the nearest land mass, using OpenStreetMap coastlines as the land reference. Pixels are classified into discrete distance bands rather than storing a continuous distance value. The resulting classes encode proximity to land (e.g. near-coast, open water), which is useful as a model input since SAR backscatter near coastlines can be contaminated by land returns. In the RTT dataset, pixels classified as over-land are masked out (set to a fill value) as part of the SAR preprocessing step described in `#### RTT Preprocessing`. The full classification scheme and band boundaries are defined in the dataset manual. In the RTT dataset, the `distance_map` is also normalized to the range [-1, 1] using the same per-variable min/max approach applied to all other sensor variables.
 
 #### Georeferencing Image Workflow
 Neither the raw nor RTT datasets include an embedded CRS or affine geotransform. Instead, geographic location is encoded through sparse Ground Control Points (GCPs). The notebook at `notebooks/training_data_exploration/training_data_format_exploration.ipynb` implements a workflow to georeference and export any variable as a GeoTIFF using these GCPs.
