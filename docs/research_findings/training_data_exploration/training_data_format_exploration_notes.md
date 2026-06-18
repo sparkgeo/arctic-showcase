@@ -196,6 +196,14 @@ In summary, each variable is remapped as follows:
 
 The fill value 255 must be masked out during training to prevent it from contributing to the loss. Not all SIGRID-3 codes appear in the dataset — some are excluded from the class scheme because they occur in too few polygons to be adequately represented.
 
+#### Raw Sea Ice Chart Conversion — Implementation
+
+The conversion from `polygon_icechart` + `polygon_codes` to `SIC_derived`, `SOD_derived`, and `FLOE_derived` was implemented in the exploration notebook (`notebooks/training_data_exploration/training_data_format_exploration.ipynb`), following the logic in `convert_raw_icechart.py` from the [AI4ArcticSeaIceChallenge repository](https://github.com/astokholm/AI4ArcticSeaIceChallenge/tree/main). The lookup tables (`SIC_LOOKUP`, `SOD_LOOKUP`, `FLOE_LOOKUP`) are taken verbatim from that repository's `utils.py`.
+
+The derived variables were compared against the RTT label dataset (`SIC`, `SOD`, `FLOE`) and confirmed to align closely. The remaining differences are expected: the RTT labels apply additional masking over land and outside the chart extent (using `distance_map`-based land masking), which is not reproduced in the raw conversion.
+
+One implementation note: over-land and outside-chart pixels in `polygon_icechart` are stored as `float32` NaN (no polygon ID assigned). These pixels are unaffected by the polygon lookup loop but would be silently cast to class 0 (open water) when converting to `uint8`. The implementation captures a NaN mask from `polygon_icechart` before the loop and stamps those pixels with fill value 255 after all other processing, so they are correctly excluded from training rather than treated as open water.
+
 ### Anciliary Data
 There are several anciliary variables included in the raw NetCDF files. These are primarily spatial information for georeferencing.
 
