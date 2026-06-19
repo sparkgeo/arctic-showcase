@@ -9,9 +9,12 @@ from mypy_boto3_s3 import S3Client
 from tqdm import tqdm
 
 DATASETS = {
-    "raw_train": {"input_prefix": "training_data/ai4arctic/raw_train/",
-                  "output_prefix": "training_data/ai4arctic/raw_train/extracted/"},
+    "raw_train": {
+        "input_prefix": "training_data/ai4arctic/raw_train/",
+        "output_prefix": "training_data/ai4arctic/raw_train/extracted/",
+    },
 }
+
 
 def s3_key_exists(bucket: str, key: str, s3: S3Client) -> bool:
     try:
@@ -87,9 +90,9 @@ def process_zip(
 def main(bucket: str, profile: str | None = None) -> None:
     if profile:
         session = boto3.Session(profile_name=profile)
-    else:        
+    else:
         session = boto3.Session()
-    
+
     s3: S3Client = session.client("s3")
 
     all_zips: list[tuple[str, str]] = []
