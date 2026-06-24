@@ -1,4 +1,5 @@
 import argparse
+import csv
 import json
 import tempfile
 import time
@@ -55,7 +56,12 @@ def compute_scene_stats(s3: S3Client, bucket: str, key: str) -> dict[str, dict] 
                         continue
                     mean = float(np.mean(valid))
                     M2   = float(np.sum((valid - mean) ** 2))
-                    stats[var] = {'n': len(valid), 'mean': mean, 'M2': M2}
+                    stats[var] = {
+                        'n': len(valid), 'mean': mean, 'M2': M2,
+                        'std': float(np.std(valid)),
+                        'min': float(np.min(valid)),
+                        'max': float(np.max(valid)),
+                    }
         elapsed = time.time() - t0
         print(f"  OK  {key.split('/')[-1][:60]}  ({elapsed:.1f}s)")
         return stats
@@ -91,6 +97,7 @@ if __name__ == '__main__':
     parser.add_argument('--profile', default=None,        help="AWS CLI profile name")
     parser.add_argument('--workers', type=int, default=8, help="Concurrent download threads")
     parser.add_argument('--output',  default='dataset_stats.json')
+    parser.add_argument('--csv',     default='scene_stats.csv',   help="Per-scene CSV output path")
     args = parser.parse_args()
 
     session = boto3.Session(profile_name="spk_data")
@@ -103,16 +110,29 @@ if __name__ == '__main__':
     total_start = time.time()
     accumulated: dict[str, dict] = {}
 
+    csv_path = Path(args.csv)
+    csv_exists = csv_path.exists()
+    csv_file = csv_path.open('a', newline='')
+    csv_writer = csv.writer(csv_file)
+    if not csv_exists:
+        csv_writer.writerow(['scene', 'variable', 'mean', 'std', 'min', 'max', 'n_pixels'])
+
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {executor.submit(compute_scene_stats, s3, args.bucket, k): k for k in keys}
         for future in as_completed(futures):
+            key = futures[future]
             result = future.result()
             if result is None:
                 continue
+            scene_name = key.split('/')[-1]
             for var, s in result.items():
+                csv_writer.writerow([scene_name, var, s['mean'], s['std'], s['min'], s['max'], s['n']])
+                csv_file.flush()
                 if var not in accumulated:
                     accumulated[var] = {'n': 0, 'mean': 0.0, 'M2': 0.0}
                 accumulated[var] = merge(accumulated[var], s)
+
+    csv_file.close()
 
     final = finalise(accumulated)
     with open(args.output, 'w') as f:
