@@ -19,6 +19,7 @@ dependencies = [
     "xarray>=2026.4.0",
     "rioxarray>=0.22.0",
     "requests>=2.34.2",
+    "mypy-boto3-s3>=1.43.31",
 ]
 
 [tool.uv]
