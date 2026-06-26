@@ -13,6 +13,8 @@ The script also writes a per-scene CSV (`scene_stats.csv`) with mean, std, min, 
 | `dataset_stats.json` | Dataset-wide mean, std, and pixel count per variable |
 | `scene_stats.csv` | Per-scene, per-variable mean, std, min, max, n_pixels |
 
+Overall stats are stored under `training_data/ai4arctic/statistics` in the S3 bucket named `raw_train_stats.json`.
+
 ## Usage
 
 ```bash
