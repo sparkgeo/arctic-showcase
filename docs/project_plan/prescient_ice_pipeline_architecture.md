@@ -232,7 +232,7 @@ The training stage assembles (patch token, label) pairs and trains the downstrea
 
 Training dataset assembly is a **single pass** over the AI4Arctic corpus. A harness iterates the scenes; for each chip it calls the Clay encoder (Stage 3) inline, prepares the patch labels, assembles the per-patch feature rows, and appends them to the GeoParquet output — all without writing an intermediate embedding artefact. The encoding, label preparation, and feature assembly concerns are kept as separate, independently testable modules, but they execute together in one pass so the corpus is read once and the transient embeddings are stored once, as feature columns. The output is partitioned by scene so a failure mid-run leaves completed scenes persisted.
 
-The pass covers all 533 AI4Arctic scenes — the 513 training scenes and the 20 held-out test scenes — and tags each row with a `split` value (train, validation, or test) derived from a scene-level assignment, so downstream consumers select a split by filtering the table rather than maintaining separate datasets. The test scenes' labels, released after the AutoICE challenge as a separate file, are joined at load time (the loader, Stage 3 / B2) so label preparation runs identically across all three splits. The train/validation/test split and its rationale are defined in `prescient_ice_training_strategy.md` § Dataset Splits.
+The pass covers all 533 AI4Arctic scenes — the 513 training scenes and the 20 held-out test scenes — and tags each row with a `split` value (train, validation, or test) derived from a scene-level assignment, so downstream consumers select a split by filtering the table rather than maintaining separate datasets. The test scenes' labels, released after the AutoICE challenge as a separate file, are joined at load time (the loader, Stage 3 / B2.1) so label preparation runs identically across all three splits. The train/validation/test split and its rationale are defined in `prescient_ice_training_strategy.md` § Dataset Splits.
 
 1. **Scene iteration** — iterate over all 533 AI4Arctic scenes (513 train/validation, 20 test) via direct NetCDF reads, tagging each scene with its `split` and joining the separate test-scene label file where applicable.
 2. **Chip extraction** — divide each scene into 256×256 chips aligned to Clay's input size (Stage 3 tiling rule). Extract HH/HV pixels for the encoder, and co-registered AMSR2 brightness temperatures and ERA5 surface variables for ancillary features.
@@ -314,7 +314,7 @@ Layer toggling, opacity control, and temporal navigation (stepping through dates
 
 All STAC item bounding boxes are expressed in WGS84 (EPSG:4326) per the STAC specification, regardless of the native asset CRS.
 
-AI4Arctic is not represented as a Prescient STAC collection. It is consumed by the training pipeline directly via its native NetCDF distribution, read by a purpose-built loader (B2) rather than TorchGeo. The rationale is detailed in `prescient_ice_datasets.md`.
+AI4Arctic is not represented as a Prescient STAC collection. It is consumed by the training pipeline directly via its native NetCDF distribution, read by a purpose-built loader (B2.1) rather than TorchGeo. The rationale is detailed in `prescient_ice_datasets.md`.
 
 ---
 

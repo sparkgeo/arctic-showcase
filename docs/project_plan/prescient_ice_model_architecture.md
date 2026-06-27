@@ -89,15 +89,15 @@ All seven AMSR2 frequency bands at both polarisations, in ascending frequency or
 **Block 4 — ERA5 surface variables (6 columns):**
 In source NetCDF order from the AI4Arctic bundle: `u10m_rotated`, `v10m_rotated`, `t2m`, `skt`, `tcwv`, `tclw`. Units: m/s (wind), K (temperature), kg/m² (tcwv, tclw). No normalisation applied; Random Forest and XGBoost are scale-invariant. The 2025–26 CDS download must apply the same rotation to wind components as the AI4Arctic bundle (alignment to the S-1 flight direction, requiring the S-1 heading angle at acquisition time) — this is an explicit implementation requirement on the inference path.
 
-**Block 5 — Distance-to-land index (1 column):**
-Integer index 0–41 following the AI4Arctic Table 7 encoding (Buus-Hinkler et al., 2022). On the training path, read directly from the `distance_map` variable in each AI4Arctic NetCDF. On the inference path, read from Band 2 of the `land-mask` COG (pre-rasterised CanVec-derived distance index in EPSG:3978 at 40m). The OSM-vs-CanVec geometry difference is the primary source of residual training-inference discrepancy for this feature; the valid-fraction filter architecturally contains it.
+**Block 5 — Spatial and geometric context (2 columns):**
+`distance_to_land` — integer index 0–41 following the AI4Arctic Table 7 encoding (Buus-Hinkler et al., 2022). On the training path, read directly from the `distance_map` variable in each AI4Arctic NetCDF. On the inference path, read from Band 2 of the `land-mask` COG (pre-rasterised CanVec-derived distance index in EPSG:3978 at 40m). The OSM-vs-CanVec geometry difference is the primary source of residual training-inference discrepancy for this feature; the valid-fraction filter architecturally contains it. `ia_mean` — mean incidence angle in degrees across the patch's ~320m footprint, computed as the per-pixel mean of the `sar_incidenceangle` variable (interpolated to full image resolution from GCPs) over the 8×8 source pixels of the patch before Clay encoding. Incidence angle varies systematically across the Sentinel-1 EW swath (~19° near-range to ~47° far-range) and affects backscatter magnitude independently of surface type; including it as an explicit feature allows the downstream classifier to condition on cross-swath position. On the training path, read from the `sar_incidenceangle` variable in each AI4Arctic NetCDF. On the inference path, derived from the same GCP-based angle grid carried in the Sentinel-1 GRD product metadata, interpolated to the patch footprint using the same method. Units: degrees.
 
 **Nodata substitution.** The substitution mean applied to land and SAR nodata pixels before Clay encoding is the fixed dataset-wide per-band mean — the same values used as the `sentinel-1-ew` normalisation constants. Substituted pixels are therefore exactly zero in Clay's normalised input space by construction. Per-patch valid fraction is computed before substitution as the count of non-NaN, non-land pixels divided by 64.
 
 **Feature dimensions per configuration:**
-- Configuration 1 (raw baseline): blocks 1 + 3 + 4 + 5 → 5 + 14 + 6 + 1 = 26 dimensions
-- Configuration 2 (patch tokens): blocks 2 + 3 + 4 + 5 → 1024 + 14 + 6 + 1 = 1045 dimensions
-- Configuration 3 (patch tokens + chip embedding): blocks 2 + chip token + 3 + 4 + 5 → 1024 + 1024 + 14 + 6 + 1 = 2069 dimensions
+- Configuration 1 (raw baseline): blocks 1 + 3 + 4 + 5 → 5 + 14 + 6 + 2 = 27 dimensions
+- Configuration 2 (patch tokens): blocks 2 + 3 + 4 + 5 → 1024 + 14 + 6 + 2 = 1046 dimensions
+- Configuration 3 (patch tokens + chip embedding): blocks 2 + chip token + 3 + 4 + 5 → 1024 + 1024 + 14 + 6 + 2 = 2070 dimensions
 
 ### Feature Configurations
 

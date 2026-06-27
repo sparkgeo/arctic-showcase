@@ -79,7 +79,7 @@ Work is split across two semi-parallel tracks that share a common feature contra
 
 The tracks converge at the **feature contract** — the authoritative specification in `prescient_ice_model_architecture.md` § Feature Contract. Both tracks must produce an identical five-block feature vector schema in identical column order. This is the single most important invariant in the codebase; see § Invariants below.
 
-**Critical path:** B1 (normalisation constants) gates all Clay encoding on both tracks. B1 → B3 → B5 is the time-bound path (co-op student, ~end of August 2026). Track A ingestion tasks (A1–A7) carry no dependency on Track B and can proceed in parallel.
+**Critical path:** B1 (normalisation constants) gates all Clay encoding on both tracks. B1 → B2 → B3 is the time-bound path (co-op student, ~end of August 2026). Track A ingestion tasks (A1–A7) carry no dependency on Track B and can proceed in parallel.
 
 **Key infrastructure:** AWS S3 (asset storage), SageMaker (training, managed MLflow), AWS Batch GPU g5 (Clay encoding), Step Functions (orchestration). EPSG:3978 (NAD83 / Canada Atlas Lambert) is the analytical CRS throughout; TiTiler reprojects to Web Mercator on the fly for tile serving.
 
@@ -91,11 +91,11 @@ For full pipeline detail, see `prescient_ice_pipeline_architecture.md`. For the 
 
 ### Feature contract parity
 
-The feature vector is five ordered blocks: raw SAR statistics → Clay patch token → AMSR2 brightness temperatures → ERA5 variables → distance-to-land index. Full column schema and ordering are specified in `prescient_ice_model_architecture.md` § Feature Contract. Both the training assembly path (B4) and the inference path (A9) must produce this schema identically. Any deviation is a silent distribution shift between training and inference — it will not raise an error.
+The feature vector is five ordered blocks: raw SAR statistics → Clay patch token → AMSR2 brightness temperatures → ERA5 variables → distance-to-land index and incidence angle mean. Full column schema and ordering are specified in `prescient_ice_model_architecture.md` § Feature Contract. Both the training assembly path (B2) and the inference path (A9) must produce this schema identically. Any deviation is a silent distribution shift between training and inference — it will not raise an error.
 
 ### NERSC normalisation constants
 
-Dataset-wide per-band mean and std of NERSC-corrected σ⁰ (dB), computed across all 513 AI4Arctic training scenes, are computed once in task B1 and stored as a versioned S3 artefact. Both B3 (training encoding) and A8 (inference encoding) must **consume** these constants from S3 — never re-derive them, and never substitute Clay's built-in `sentinel-1-rtc` constants. These constants also serve as the nodata substitution mean (substituted pixels become exactly zero in Clay's normalised input space).
+Dataset-wide per-band mean and std of NERSC-corrected σ⁰ (dB), computed across all 513 AI4Arctic training scenes, are computed once in task B1 and stored as a versioned S3 artefact. Both B2.2 (training encoding) and A8 (inference encoding) must **consume** these constants from S3 — never re-derive them, and never substitute Clay's built-in `sentinel-1-rtc` constants. These constants also serve as the nodata substitution mean (substituted pixels become exactly zero in Clay's normalised input space).
 
 ### Clay encoder API
 
