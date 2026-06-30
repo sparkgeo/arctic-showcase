@@ -20,6 +20,7 @@ dependencies = [
     "rioxarray>=0.22.0",
     "requests>=2.34.2",
     "mypy-boto3-s3>=1.43.31",
+    "claymodel",
 ]
 
 [tool.uv]
@@ -27,6 +28,9 @@ package = false
 
 [tool.uv.workspace]
 members = ["src/*"]
+
+[tool.uv.sources]
+claymodel = { git = "https://github.com/Clay-foundation/model.git" }
 
 [dependency-groups]
 dev = [
