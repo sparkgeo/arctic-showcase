@@ -21,6 +21,7 @@ dependencies = [
     "requests>=2.34.2",
     "mypy-boto3-s3>=1.43.31",
     "claymodel",
+    "tensorflow>=2.21.0",
 ]
 
 [tool.uv]
