@@ -4268,16 +4268,24 @@ version = "0.1.0"
 source = { editable = "src/training" }
 dependencies = [
     { name = "boto3" },
+    { name = "claymodel" },
+    { name = "einops" },
     { name = "numpy" },
+    { name = "pyyaml" },
     { name = "scipy" },
+    { name = "torch" },
     { name = "xarray" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "boto3", specifier = ">=1.43.34" },
+    { name = "claymodel", git = "https://github.com/Clay-foundation/model.git" },
+    { name = "einops", specifier = ">=0.7.0" },
     { name = "numpy", specifier = ">=2.4.6" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "scipy", specifier = ">=1.18.0" },
+    { name = "torch", specifier = ">=2.12.1" },
     { name = "xarray", specifier = ">=2026.4.0" },
 ]
 

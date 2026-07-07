@@ -23,6 +23,7 @@ from training.data_loader import (
     latlon_encoding,
     load_band_means,
     load_scene,
+    load_stats,
     parse_acquisition_datetime,
     parse_ct_tenths,
     read_scene,
@@ -30,6 +31,17 @@ from training.data_loader import (
     resample_to_sar,
     time_encoding,
     yield_chips,
+)
+from training.encoding import (
+    SarMetadata,
+    build_sentinel1_ew_entry,
+    encode_chip,
+    ensure_sentinel1_ew_entry,
+    load_clay_module,
+    load_metadata,
+    sar_metadata_from_entry,
+    save_metadata,
+    select_device,
 )
 
 __all__ = [
@@ -54,6 +66,7 @@ __all__ = [
     "build_chart_ct",
     "parse_ct_tenths",
     "load_band_means",
+    "load_stats",
     "latlon_encoding",
     "parse_acquisition_datetime",
     "time_encoding",
@@ -64,4 +77,13 @@ __all__ = [
     "fill_invalid",
     "load_scene",
     "yield_chips",
+    "SarMetadata",
+    "build_sentinel1_ew_entry",
+    "ensure_sentinel1_ew_entry",
+    "load_metadata",
+    "sar_metadata_from_entry",
+    "save_metadata",
+    "load_clay_module",
+    "select_device",
+    "encode_chip",
 ]
