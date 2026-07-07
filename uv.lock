@@ -4267,12 +4267,16 @@ name = "training"
 version = "0.1.0"
 source = { editable = "src/training" }
 dependencies = [
+    { name = "boto3" },
+    { name = "numpy" },
     { name = "scipy" },
     { name = "xarray" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "boto3", specifier = ">=1.43.34" },
+    { name = "numpy", specifier = ">=2.4.6" },
     { name = "scipy", specifier = ">=1.18.0" },
     { name = "xarray", specifier = ">=2026.4.0" },
 ]
