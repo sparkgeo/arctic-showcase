@@ -8,7 +8,6 @@ from training.data_loader.resampling import resample_to_sar
 from training.data_loader.scene_reader import RawScene
 from training.data_loader.valid_mask import fill_invalid
 
-
 @dataclass(frozen=True)
 class ResampledAncillary:
     amsr2: NDArray[np.float32]  # (14, H, W)
