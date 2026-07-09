@@ -43,6 +43,7 @@ from training.encoding import (
     save_metadata,
     select_device,
 )
+from training.patch_features import PatchFeatures, compute_patch_features
 
 __all__ = [
     "ALL_BANDS",
@@ -86,4 +87,6 @@ __all__ = [
     "load_clay_module",
     "select_device",
     "encode_chip",
+    "PatchFeatures",
+    "compute_patch_features",
 ]
