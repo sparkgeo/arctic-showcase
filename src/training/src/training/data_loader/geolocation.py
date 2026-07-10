@@ -26,16 +26,18 @@ def build_gcp_interpolators(
     gcp_lons: NDArray[np.float64],
     gcp_angles: NDArray[np.float64],
 ) -> GcpInterpolators:
-    # GCP count read dynamically from the array itself (which mirrors sar_grid_points).
-    gcp_side = int(np.sqrt(gcp_lines.size))
+    # Row/col counts read dynamically from the array itself (which mirrors
+    # sar_grid_points) -- the GCP grid is not always square (e.g. 22x21).
+    n_rows = len(np.unique(gcp_lines))
+    n_cols = len(np.unique(gcp_samps))
 
     # NetCDF storage order is not guaranteed to be row-major.
     sort_idx = np.lexsort((gcp_samps, gcp_lines))
-    lines_2d = gcp_lines[sort_idx].reshape(gcp_side, gcp_side)
-    samps_2d = gcp_samps[sort_idx].reshape(gcp_side, gcp_side)
-    lats_2d = gcp_lats[sort_idx].reshape(gcp_side, gcp_side)
-    lons_2d = gcp_lons[sort_idx].reshape(gcp_side, gcp_side)
-    angles_2d = gcp_angles[sort_idx].reshape(gcp_side, gcp_side)
+    lines_2d = gcp_lines[sort_idx].reshape(n_rows, n_cols)
+    samps_2d = gcp_samps[sort_idx].reshape(n_rows, n_cols)
+    lats_2d = gcp_lats[sort_idx].reshape(n_rows, n_cols)
+    lons_2d = gcp_lons[sort_idx].reshape(n_rows, n_cols)
+    angles_2d = gcp_angles[sort_idx].reshape(n_rows, n_cols)
 
     row_axis = lines_2d[:, 0]
     col_axis = samps_2d[0, :]
