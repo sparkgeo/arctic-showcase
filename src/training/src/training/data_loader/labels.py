@@ -3,14 +3,19 @@ from numpy.typing import NDArray
 
 
 def parse_ct_tenths(ct_str: str) -> float | None:
-    """Convert a raw SIGRID-3 CT string to tenths (0-10 float), or None for the -9 fill code."""
+    """Convert a raw SIGRID-3 CT string to tenths (0-10 float), or None for the -9 fill code
+    or an unknown/not-filled/glacier sentinel (e.g. 91, 92 -- any single code that isn't an
+    exact multiple of 10, since genuine single CT codes always are)."""
     s = ct_str.strip()
     if s == "-9":
         return None
     if "-" in s[1:]:  # range code e.g. '50-70' -> midpoint 60 -> 6.0
         lo, _, hi = s.partition("-")
         return (float(lo) + float(hi)) / 2.0 / 10.0
-    return float(s) / 10.0
+    value = float(s)
+    if value % 10 != 0:
+        return None
+    return value / 10.0
 
 
 def build_chart_ct(

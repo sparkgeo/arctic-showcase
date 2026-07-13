@@ -43,6 +43,7 @@ from training.encoding import (
     save_metadata,
     select_device,
 )
+from training.label_prep import PatchLabels, compute_patch_labels
 from training.patch_features import PatchFeatures, compute_patch_features
 
 __all__ = [
@@ -89,4 +90,6 @@ __all__ = [
     "encode_chip",
     "PatchFeatures",
     "compute_patch_features",
+    "PatchLabels",
+    "compute_patch_labels",
 ]
