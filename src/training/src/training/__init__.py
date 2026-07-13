@@ -43,6 +43,7 @@ from training.encoding import (
     save_metadata,
     select_device,
 )
+from training.feature_assembly import ChipEmbeddings, ChipGeometry, assemble_rows
 from training.label_prep import PatchLabels, compute_patch_labels
 from training.patch_features import PatchFeatures, compute_patch_features
 
@@ -92,4 +93,7 @@ __all__ = [
     "compute_patch_features",
     "PatchLabels",
     "compute_patch_labels",
+    "ChipEmbeddings",
+    "ChipGeometry",
+    "assemble_rows",
 ]

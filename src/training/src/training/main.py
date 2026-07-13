@@ -1,5 +1,3 @@
-
-
 # def load_scene(scene):
 #     return scene
 
@@ -18,6 +16,6 @@
 
 # def main():
 #     scene_list = ["1", "2", "3"]
-    
+
 #     for chip in yield_all_chips(scene_list):
 #         print(f"Yielded chip: {chip}")
