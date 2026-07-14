@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+import boto3
 import numpy as np
 import xarray as xr
 from numpy.typing import NDArray
@@ -24,6 +25,29 @@ class RawScene:
     gcp_lats: NDArray[np.float64]
     gcp_lons: NDArray[np.float64]
     gcp_angles: NDArray[np.float64]
+
+
+def list_scene_keys(bucket: str, prefix: str, profile: str | None = None) -> list[str]:
+    """Lists .nc scene object keys under an S3 prefix, sorted for a deterministic pass order."""
+    session = boto3.Session(profile_name=profile)
+    s3 = session.client("s3")
+    paginator = s3.get_paginator("list_objects_v2")
+    keys = [
+        obj["Key"]
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix)
+        for obj in page.get("Contents", [])
+        if obj["Key"].endswith(".nc")
+    ]
+    return sorted(keys)
+
+
+def download_scene(bucket: str, key: str, dest_dir: Path, profile: str | None = None) -> Path:
+    """Downloads one scene object to dest_dir, returning the local path read_scene expects."""
+    session = boto3.Session(profile_name=profile)
+    s3 = session.client("s3")
+    dest_path = dest_dir / Path(key).name
+    s3.download_file(bucket, key, str(dest_path))
+    return dest_path
 
 
 def read_scene(scene_path: Path) -> RawScene:

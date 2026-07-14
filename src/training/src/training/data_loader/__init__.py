@@ -23,7 +23,12 @@ from training.data_loader.labels import build_chart_ct, parse_ct_tenths
 from training.data_loader.loader import load_scene, yield_chips
 from training.data_loader.normalization import load_band_means, load_stats
 from training.data_loader.resampling import resample_to_sar
-from training.data_loader.scene_reader import RawScene, read_scene
+from training.data_loader.scene_reader import (
+    RawScene,
+    download_scene,
+    list_scene_keys,
+    read_scene,
+)
 from training.data_loader.tiling import chip_bounds, chip_starts
 from training.data_loader.valid_mask import compute_valid_mask, fill_invalid
 
@@ -41,6 +46,8 @@ __all__ = [
     "SceneArrays",
     "RawScene",
     "read_scene",
+    "list_scene_keys",
+    "download_scene",
     "GcpInterpolators",
     "build_gcp_interpolators",
     "get_chip_geo",
