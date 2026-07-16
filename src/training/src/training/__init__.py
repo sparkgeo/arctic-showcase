@@ -46,7 +46,9 @@ from training.encoding import (
     select_device,
 )
 from training.feature_assembly import ChipEmbeddings, ChipGeometry, assemble_rows
+from training.geometry import build_chip_geometry
 from training.label_prep import PatchLabels, compute_patch_labels
+from training.parquet_writer import write_partition
 from training.patch_features import PatchFeatures, compute_patch_features
 
 __all__ = [
@@ -100,4 +102,6 @@ __all__ = [
     "ChipEmbeddings",
     "ChipGeometry",
     "assemble_rows",
+    "build_chip_geometry",
+    "write_partition",
 ]

@@ -5,7 +5,6 @@ from typing import Any
 
 from training.data_loader import (
     ALL_BANDS,
-    Chip,
     download_scene,
     list_scene_keys,
     load_band_means,
@@ -19,18 +18,25 @@ from training.encoding import (
     load_clay_module,
     select_device,
 )
-from training.feature_assembly import ChipGeometry, assemble_rows
+from training.feature_assembly import assemble_rows
+from training.geometry import build_chip_geometry
 from training.label_prep import compute_patch_labels as prepare_labels
+from training.parquet_writer import write_partition
 from training.patch_features import compute_patch_features as extract_patch_features
 
 BUCKET = "prescient-ice-data"
-S3_PREFIX = "training_data/ai4arctic/raw_train/"
+S3_TRAIN_PREFIX = "training_data/ai4arctic/raw_train/"
+S3_TEST_PREFIX = "training_data/ai4arctic/raw_test/"
 STATS_KEY = "training_data/ai4arctic/statistics/dataset_stats.json"
+# TODO: placeholder output location -- not yet a documented/agreed destination.
+PATCH_TABLE_PREFIX = "training_data/ai4arctic/features/patch_table/"
+CHIP_TABLE_PREFIX = "training_data/ai4arctic/features/chip_table/"
 PROFILE = "spk_data"
 
-# TODO: real locations once the checkpoint / committed Clay metadata.yaml are decided.
-CLAY_CHECKPOINT_PATH = Path("TODO_clay_checkpoint.ckpt")
-CLAY_METADATA_PATH = Path("TODO_clay_metadata.yaml")
+# TODO: change to obtain from S3 instead?
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+CLAY_CHECKPOINT_PATH = _REPO_ROOT / "clay-v1.5.ckpt"
+CLAY_METADATA_PATH = _REPO_ROOT / "configs" / "metadata.yaml"
 
 
 @dataclass(frozen=True)
@@ -39,27 +45,23 @@ class SceneRef:
     split: str
 
 
-def list_all_scenes(bucket: str, prefix: str, profile: str | None) -> list[SceneRef]:
-    """All 533 scenes, each carrying its split assignment.
+def list_all_scenes(
+    bucket: str, train_prefix: str, test_prefix: str, profile: str | None
+) -> list[SceneRef]:
+    """All 533 scenes, each carrying its split assignment: raw_train -> "train",
+    raw_test -> "test".
 
-    TODO: only the raw_train prefix is listed here, and every scene is tagged
-    "train" -- the real train/validation manifest and the separate raw_test
-    prefix (prescient_ice_training_strategy.md § Dataset Splits) aren't wired in.
+    TODO: the 20 test scenes' labels were withheld from AI4Arctic's original
+    distribution and released separately post-challenge -- that label file still
+    needs to be joined in at load time (B2.1) for compute_patch_labels to produce
+    real values on the test split; reading raw_test through load_scene alone does
+    not do this join.
     """
-    keys = list_scene_keys(bucket, prefix, profile=profile)
-    return [SceneRef(key=key, split="train") for key in keys]
-
-
-def chip_geometry(chip: Chip) -> ChipGeometry:
-    """TODO: chip/patch footprint polygons from the GCP grid aren't built anywhere yet."""
-    raise NotImplementedError("chip/patch geometry construction is not yet implemented")
-
-
-def flush_parquet_partition(
-    scene_id: str, buffer: list[tuple[list[dict[str, Any]], dict[str, Any]]]
-) -> None:
-    """TODO: no GeoParquet writer exists yet -- this is B2.6's durable write."""
-    raise NotImplementedError("GeoParquet partition write is not yet implemented")
+    train_keys = list_scene_keys(bucket, train_prefix, profile=profile)
+    test_keys = list_scene_keys(bucket, test_prefix, profile=profile)
+    return [SceneRef(key=key, split="train") for key in train_keys] + [
+        SceneRef(key=key, split="test") for key in test_keys
+    ]
 
 
 def main() -> None:
@@ -70,13 +72,14 @@ def main() -> None:
     sar_meta = ensure_sentinel1_ew_entry(CLAY_METADATA_PATH, stats)
     module = load_clay_module(CLAY_CHECKPOINT_PATH, CLAY_METADATA_PATH, device)
 
-    all_scenes = list_all_scenes(BUCKET, S3_PREFIX, PROFILE)
+    all_scenes = list_all_scenes(BUCKET, S3_TRAIN_PREFIX, S3_TEST_PREFIX, PROFILE)
 
     with tempfile.TemporaryDirectory() as scratch:
         scratch_dir = Path(scratch)
 
         for scene in all_scenes:  # all 533, each carrying its split assignment
-            buffer: list[tuple[list[dict[str, Any]], dict[str, Any]]] = []
+            scene_patch_rows: list[dict[str, Any]] = []
+            scene_chip_rows: list[dict[str, Any]] = []
 
             # download + load stand in for the pseudocode's single load_chips(scene) --
             # scenes live in S3, and load_scene needs a local NetCDF path.
@@ -87,7 +90,7 @@ def main() -> None:
                 embeddings = encode_chip(chip, module, sar_meta, device)  # B2.2 -- embeddings only
                 patch_features = extract_patch_features(chip)  # B2.3
                 labels = prepare_labels(chip)  # B2.4
-                geometry = chip_geometry(chip)
+                geometry = build_chip_geometry(chip, loaded_scene.gcp)
 
                 patch_rows, chip_row = assemble_rows(  # B2.5
                     embeddings, patch_features, labels, geometry, chip.scene_id
@@ -96,10 +99,19 @@ def main() -> None:
                     row["split"] = scene.split
                 chip_row["split"] = scene.split
 
-                buffer.append((patch_rows, chip_row))
+                scene_patch_rows.extend(patch_rows)
+                scene_chip_rows.append(chip_row)
 
             scene_path.unlink()
-            flush_parquet_partition(loaded_scene.scene_id, buffer)  # durable write, then free
+
+            # durable write, then free -- one partition per table per scene, so a
+            # failure mid-run leaves every already-flushed scene persisted.
+            write_partition(
+                BUCKET, PATCH_TABLE_PREFIX, loaded_scene.scene_id, scene_patch_rows, PROFILE
+            )
+            write_partition(
+                BUCKET, CHIP_TABLE_PREFIX, loaded_scene.scene_id, scene_chip_rows, PROFILE
+            )
 
 
 if __name__ == "__main__":

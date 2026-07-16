@@ -26,6 +26,8 @@ dependencies = [
     "mypy-boto3-s3>=1.43.31",
     "claymodel",
     "tensorflow>=2.21.0",
+    "pyproj>=3.7.2",
+    "pyarrow>=25.0.0",
 ]
 
 [build-system]
