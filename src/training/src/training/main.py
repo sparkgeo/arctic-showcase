@@ -1,3 +1,4 @@
+import logging
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,11 +33,21 @@ STATS_KEY = "training_data/ai4arctic/statistics/dataset_stats.json"
 PATCH_TABLE_PREFIX = "training_data/ai4arctic/features/patch_table/"
 CHIP_TABLE_PREFIX = "training_data/ai4arctic/features/chip_table/"
 PROFILE = "spk_data"
+# Local-test cap on the number of scenes processed. None runs the full corpus.
+MAX_SCENES: int | None = 2
 
 # TODO: change to obtain from S3 instead?
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 CLAY_CHECKPOINT_PATH = _REPO_ROOT / "clay-v1.5.ckpt"
 CLAY_METADATA_PATH = _REPO_ROOT / "configs" / "metadata.yaml"
+
+CHIP_LOG_INTERVAL = 50  # log progress every N chips within a scene
+# Flush + clear the patch-row buffer every N chips -- each chip contributes up
+# to 1024 patch rows (each carrying a 1024-float patch_token), so buffering a
+# whole scene (~1,280 chips) before writing can reach tens of GB and OOM.
+PATCH_FLUSH_INTERVAL = 50
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -73,19 +84,33 @@ def main() -> None:
     module = load_clay_module(CLAY_CHECKPOINT_PATH, CLAY_METADATA_PATH, device)
 
     all_scenes = list_all_scenes(BUCKET, S3_TRAIN_PREFIX, S3_TEST_PREFIX, PROFILE)
+    if MAX_SCENES is not None:
+        all_scenes = all_scenes[:MAX_SCENES]
+    logger.info("Processing %d scenes", len(all_scenes))
 
     with tempfile.TemporaryDirectory() as scratch:
         scratch_dir = Path(scratch)
 
-        for scene in all_scenes:  # all 533, each carrying its split assignment
+        for scene_idx, scene in enumerate(all_scenes, start=1):
             scene_patch_rows: list[dict[str, Any]] = []
             scene_chip_rows: list[dict[str, Any]] = []
+
+            logger.info(
+                "[%d/%d] %s (split=%s): downloading",
+                scene_idx,
+                len(all_scenes),
+                scene.key,
+                scene.split,
+            )
 
             # download + load stand in for the pseudocode's single load_chips(scene) --
             # scenes live in S3, and load_scene needs a local NetCDF path.
             scene_path = download_scene(BUCKET, scene.key, scratch_dir, profile=PROFILE)
             loaded_scene = load_scene(scene_path, band_means)
 
+            chip_count = 0
+            total_patch_rows = 0
+            patch_part = 0
             for chip in load_chips(loaded_scene):
                 embeddings = encode_chip(chip, module, sar_meta, device)  # B2.2 -- embeddings only
                 patch_features = extract_patch_features(chip)  # B2.3
@@ -102,17 +127,60 @@ def main() -> None:
                 scene_patch_rows.extend(patch_rows)
                 scene_chip_rows.append(chip_row)
 
+                chip_count += 1
+                if chip_count % CHIP_LOG_INTERVAL == 0:
+                    logger.info(
+                        "[%d/%d] %s: %d chips done",
+                        scene_idx,
+                        len(all_scenes),
+                        scene.key,
+                        chip_count,
+                    )
+
+                if chip_count % PATCH_FLUSH_INTERVAL == 0:
+                    total_patch_rows += len(scene_patch_rows)
+                    write_partition(
+                        BUCKET,
+                        PATCH_TABLE_PREFIX,
+                        loaded_scene.scene_id,
+                        scene_patch_rows,
+                        PROFILE,
+                        part=patch_part,
+                    )
+                    patch_part += 1
+                    scene_patch_rows.clear()
+
             scene_path.unlink()
 
-            # durable write, then free -- one partition per table per scene, so a
-            # failure mid-run leaves every already-flushed scene persisted.
+            # flush whatever's left (a partial batch, or a whole small scene),
+            # then the chip table -- chip rows are ~1024x smaller than patch
+            # rows (no patch_token), so buffering them for the whole scene is fine.
+            total_patch_rows += len(scene_patch_rows)
             write_partition(
-                BUCKET, PATCH_TABLE_PREFIX, loaded_scene.scene_id, scene_patch_rows, PROFILE
+                BUCKET,
+                PATCH_TABLE_PREFIX,
+                loaded_scene.scene_id,
+                scene_patch_rows,
+                PROFILE,
+                part=patch_part,
             )
             write_partition(
                 BUCKET, CHIP_TABLE_PREFIX, loaded_scene.scene_id, scene_chip_rows, PROFILE
             )
 
+            logger.info(
+                "[%d/%d] %s: done -- %d chips, %d patch rows, %d chip rows",
+                scene_idx,
+                len(all_scenes),
+                scene.key,
+                chip_count,
+                total_patch_rows,
+                len(scene_chip_rows),
+            )
+
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
     main()
