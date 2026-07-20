@@ -55,6 +55,7 @@ dev = [
     "unet>=0.8.1",
     "scikit-learn>=1.9.0",
     "leafmap>=0.62.0",
+    "ibis-framework[duckdb]>=12.0.0",
 ]
 
 [tool.pytest.ini_options]
