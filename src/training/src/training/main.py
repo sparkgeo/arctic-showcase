@@ -29,7 +29,6 @@ BUCKET = "prescient-ice-data"
 S3_TRAIN_PREFIX = "training_data/ai4arctic/raw_train/"
 S3_TEST_PREFIX = "training_data/ai4arctic/raw_test/"
 STATS_KEY = "training_data/ai4arctic/statistics/dataset_stats.json"
-# TODO: placeholder output location -- not yet a documented/agreed destination.
 PATCH_TABLE_PREFIX = "training_data/ai4arctic/features/patch_table/"
 CHIP_TABLE_PREFIX = "training_data/ai4arctic/features/chip_table/"
 PROFILE = "spk_data"
@@ -42,9 +41,7 @@ CLAY_CHECKPOINT_PATH = _REPO_ROOT / "clay-v1.5.ckpt"
 CLAY_METADATA_PATH = _REPO_ROOT / "configs" / "metadata.yaml"
 
 CHIP_LOG_INTERVAL = 50  # log progress every N chips within a scene
-# Flush + clear the patch-row buffer every N chips -- each chip contributes up
-# to 1024 patch rows (each carrying a 1024-float patch_token), so buffering a
-# whole scene (~1,280 chips) before writing can reach tens of GB and OOM.
+# Flush + clear the patch-row buffer every N chips
 PATCH_FLUSH_INTERVAL = 50
 
 logger = logging.getLogger(__name__)
@@ -62,11 +59,12 @@ def list_all_scenes(
     """All 533 scenes, each carrying its split assignment: raw_train -> "train",
     raw_test -> "test".
 
-    TODO: the 20 test scenes' labels were withheld from AI4Arctic's original
-    distribution and released separately post-challenge -- that label file still
-    needs to be joined in at load time (B2.1) for compute_patch_labels to produce
-    real values on the test split; reading raw_test through load_scene alone does
-    not do this join.
+    The design docs describe the 20 test scenes' labels as withheld from
+    AI4Arctic's original distribution and requiring a separate post-challenge
+    join. Verified directly against this bucket's raw_test data (polygon_codes
+    has real, non-sentinel CT values; build_chart_ct yields a sane multi-class
+    distribution): that join already happened before this copy was uploaded, so
+    reading raw_test through load_scene/compute_patch_labels needs no extra step.
     """
     train_keys = list_scene_keys(bucket, train_prefix, profile=profile)
     test_keys = list_scene_keys(bucket, test_prefix, profile=profile)
