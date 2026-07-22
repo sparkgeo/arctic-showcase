@@ -54,9 +54,12 @@ def sar_metadata_from_entry(entry: dict[str, Any]) -> SarMetadata:
 def ensure_sentinel1_ew_entry(
     metadata_path: Path, stats: dict[str, dict[str, float]]
 ) -> SarMetadata:
-    """Idempotent: only builds and writes the entry if it isn't already committed."""
+    """Keeps the committed entry in sync with the current S3 stats -- writes back to
+    metadata_path only when the entry actually changes, so a stats refresh (B1 re-run)
+    is never silently masked by an already-committed, stale entry."""
     metadata = load_metadata(metadata_path)
-    if _ENTRY_NAME not in metadata:
-        metadata[_ENTRY_NAME] = build_sentinel1_ew_entry(stats)
+    entry = build_sentinel1_ew_entry(stats)
+    if metadata.get(_ENTRY_NAME) != entry:
+        metadata[_ENTRY_NAME] = entry
         save_metadata(metadata_path, metadata)
-    return sar_metadata_from_entry(metadata[_ENTRY_NAME])
+    return sar_metadata_from_entry(entry)

@@ -96,6 +96,7 @@ def assemble_rows(
             row[f"frac_sic{k}"] = float(label.frac_sic[k])
         row["valid_class_fraction"] = label.valid_class_fraction
         row["label"] = label.label
+        row["is_pure"] = label.is_pure
         row["valid_fraction"] = features.valid_fraction
         row["chip_id"] = chip_id
         row["scene_id"] = scene_id

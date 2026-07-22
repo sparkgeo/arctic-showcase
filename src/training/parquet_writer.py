@@ -2,18 +2,18 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import boto3
 import geopandas as gpd
+from mypy_boto3_s3 import S3Client
 
 CRS = "EPSG:3978"
 
 
 def write_partition(
+    s3: S3Client,
     bucket: str,
     table_prefix: str,
     scene_id: str,
     rows: list[dict[str, Any]],
-    profile: str | None = None,
     part: int = 0,
 ) -> None:
     """Writes one batch of a scene's rows as a GeoParquet file to S3, Hive-style
@@ -31,9 +31,6 @@ def write_partition(
         return
 
     gdf = gpd.GeoDataFrame(rows, geometry="geometry", crs=CRS)
-
-    session = boto3.Session(profile_name=profile)
-    s3 = session.client("s3")
 
     with tempfile.TemporaryDirectory() as scratch:
         local_path = Path(scratch) / "part.parquet"

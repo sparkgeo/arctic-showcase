@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from mypy_boto3_s3 import S3Client
 from shapely.geometry import Point
+
 from training.data_loader.bands import AMSR2_BANDS, ERA5_BANDS, GRID_SIZE
 from training.feature_assembly import ChipGeometry, assemble_rows
 from training.label_prep import N_SIC_CLASSES, PatchLabels
@@ -108,8 +109,13 @@ def validate_patch_table(df: pd.DataFrame, expected_cols: list[str], sample_size
 
     print("      checking patch rows per chip_id...")
     counts = df.groupby("chip_id").size()
-    if (counts > N_PATCHES).any():
-        errors.append(f"{(counts > N_PATCHES).sum()} chip_id(s) exceed {N_PATCHES} patch rows")
+    if (counts != N_PATCHES).any():
+        too_many = (counts > N_PATCHES).sum()
+        too_few = (counts < N_PATCHES).sum()
+        errors.append(
+            f"{too_many} chip_id(s) exceed and {too_few} chip_id(s) fall short of "
+            f"{N_PATCHES} patch rows"
+        )
 
     print("      checking valid_fraction / valid_class_fraction bounds...")
     for col in ("valid_fraction", "valid_class_fraction"):

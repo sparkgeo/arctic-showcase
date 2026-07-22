@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-import boto3
 import numpy as np
 import xarray as xr
+from mypy_boto3_s3 import S3Client
 from numpy.typing import NDArray
 
 from training.data_loader.bands import AMSR2_BANDS, ERA5_BANDS, SAR_BANDS
@@ -27,10 +27,8 @@ class RawScene:
     gcp_angles: NDArray[np.float64]
 
 
-def list_scene_keys(bucket: str, prefix: str, profile: str | None = None) -> list[str]:
+def list_scene_keys(s3: S3Client, bucket: str, prefix: str) -> list[str]:
     """Lists .nc scene object keys under an S3 prefix, sorted for a deterministic pass order."""
-    session = boto3.Session(profile_name=profile)
-    s3 = session.client("s3")
     paginator = s3.get_paginator("list_objects_v2")
     keys = [
         obj["Key"]
@@ -41,10 +39,8 @@ def list_scene_keys(bucket: str, prefix: str, profile: str | None = None) -> lis
     return sorted(keys)
 
 
-def download_scene(bucket: str, key: str, dest_dir: Path, profile: str | None = None) -> Path:
+def download_scene(s3: S3Client, bucket: str, key: str, dest_dir: Path) -> Path:
     """Downloads one scene object to dest_dir, returning the local path read_scene expects."""
-    session = boto3.Session(profile_name=profile)
-    s3 = session.client("s3")
     dest_path = dest_dir / Path(key).name
     s3.download_file(bucket, key, str(dest_path))
     return dest_path

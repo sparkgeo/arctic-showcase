@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import boto3
+from mypy_boto3_s3 import S3Client
+
 from training.data_loader import (
     ALL_BANDS,
     download_scene,
@@ -36,7 +39,7 @@ PROFILE = "spk_data"
 MAX_SCENES: int | None = 2
 
 # TODO: change to obtain from S3 instead?
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 CLAY_CHECKPOINT_PATH = _REPO_ROOT / "clay-v1.5.ckpt"
 CLAY_METADATA_PATH = _REPO_ROOT / "configs" / "metadata.yaml"
 
@@ -54,7 +57,7 @@ class SceneRef:
 
 
 def list_all_scenes(
-    bucket: str, train_prefix: str, test_prefix: str, profile: str | None
+    s3: S3Client, bucket: str, train_prefix: str, test_prefix: str
 ) -> list[SceneRef]:
     """All 533 scenes, each carrying its split assignment: raw_train -> "train",
     raw_test -> "test".
@@ -66,22 +69,25 @@ def list_all_scenes(
     distribution): that join already happened before this copy was uploaded, so
     reading raw_test through load_scene/compute_patch_labels needs no extra step.
     """
-    train_keys = list_scene_keys(bucket, train_prefix, profile=profile)
-    test_keys = list_scene_keys(bucket, test_prefix, profile=profile)
+    train_keys = list_scene_keys(s3, bucket, train_prefix)
+    test_keys = list_scene_keys(s3, bucket, test_prefix)
     return [SceneRef(key=key, split="train") for key in train_keys] + [
         SceneRef(key=key, split="test") for key in test_keys
     ]
 
 
 def main() -> None:
-    band_means = load_band_means(BUCKET, STATS_KEY, ALL_BANDS, profile=PROFILE)
-    stats = load_stats(BUCKET, STATS_KEY, profile=PROFILE)
+    session = boto3.Session(profile_name=PROFILE)
+    s3: S3Client = session.client("s3")
+
+    band_means = load_band_means(s3, BUCKET, STATS_KEY, ALL_BANDS)
+    stats = load_stats(s3, BUCKET, STATS_KEY)
 
     device = select_device()
     sar_meta = ensure_sentinel1_ew_entry(CLAY_METADATA_PATH, stats)
     module = load_clay_module(CLAY_CHECKPOINT_PATH, CLAY_METADATA_PATH, device)
 
-    all_scenes = list_all_scenes(BUCKET, S3_TRAIN_PREFIX, S3_TEST_PREFIX, PROFILE)
+    all_scenes = list_all_scenes(s3, BUCKET, S3_TRAIN_PREFIX, S3_TEST_PREFIX)
     if MAX_SCENES is not None:
         all_scenes = all_scenes[:MAX_SCENES]
     logger.info("Processing %d scenes", len(all_scenes))
@@ -103,7 +109,7 @@ def main() -> None:
 
             # download + load stand in for the pseudocode's single load_chips(scene) --
             # scenes live in S3, and load_scene needs a local NetCDF path.
-            scene_path = download_scene(BUCKET, scene.key, scratch_dir, profile=PROFILE)
+            scene_path = download_scene(s3, BUCKET, scene.key, scratch_dir)
             loaded_scene = load_scene(scene_path, band_means)
 
             chip_count = 0
@@ -138,11 +144,11 @@ def main() -> None:
                 if chip_count % PATCH_FLUSH_INTERVAL == 0:
                     total_patch_rows += len(scene_patch_rows)
                     write_partition(
+                        s3,
                         BUCKET,
                         PATCH_TABLE_PREFIX,
                         loaded_scene.scene_id,
                         scene_patch_rows,
-                        PROFILE,
                         part=patch_part,
                     )
                     patch_part += 1
@@ -155,16 +161,14 @@ def main() -> None:
             # rows (no patch_token), so buffering them for the whole scene is fine.
             total_patch_rows += len(scene_patch_rows)
             write_partition(
+                s3,
                 BUCKET,
                 PATCH_TABLE_PREFIX,
                 loaded_scene.scene_id,
                 scene_patch_rows,
-                PROFILE,
                 part=patch_part,
             )
-            write_partition(
-                BUCKET, CHIP_TABLE_PREFIX, loaded_scene.scene_id, scene_chip_rows, PROFILE
-            )
+            write_partition(s3, BUCKET, CHIP_TABLE_PREFIX, loaded_scene.scene_id, scene_chip_rows)
 
             logger.info(
                 "[%d/%d] %s: done -- %d chips, %d patch rows, %d chip rows",
