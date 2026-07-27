@@ -38,9 +38,9 @@ PROFILE = "spk_data"
 # Local-test cap on the number of scenes processed. None runs the full corpus.
 MAX_SCENES: int | None = 2
 
-# TODO: change to obtain from S3 instead?
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 CLAY_CHECKPOINT_PATH = _REPO_ROOT / "clay-v1.5.ckpt"
+CLAY_CHECKPOINT_S3_PREFIX = "model_files/clay-v1.5.ckpt"
 CLAY_METADATA_PATH = _REPO_ROOT / "configs" / "metadata.yaml"
 
 CHIP_LOG_INTERVAL = 50  # log progress every N chips within a scene
@@ -85,6 +85,10 @@ def main() -> None:
 
     device = select_device()
     sar_meta = ensure_sentinel1_ew_entry(CLAY_METADATA_PATH, stats)
+
+    # Retrieve the ClayMAE checkpoint from S3 if it's not already present locally.
+    if not CLAY_CHECKPOINT_PATH.exists():
+        s3.download_file(BUCKET, CLAY_CHECKPOINT_S3_PREFIX, str(CLAY_CHECKPOINT_PATH))
     module = load_clay_module(CLAY_CHECKPOINT_PATH, CLAY_METADATA_PATH, device)
 
     all_scenes = list_all_scenes(s3, BUCKET, S3_TRAIN_PREFIX, S3_TEST_PREFIX)
