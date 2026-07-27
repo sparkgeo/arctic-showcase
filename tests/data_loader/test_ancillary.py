@@ -2,8 +2,17 @@ import numpy as np
 
 from training.data_loader.ancillary import resample_ancillary
 from training.data_loader.bands import AMSR2_BANDS, ERA5_BANDS
+from training.data_loader.geolocation import build_gcp_interpolators
 from training.data_loader.resampling import resample_to_sar
 from training.data_loader.scene_reader import RawScene
+
+# A 2x2 GCP grid (not a single point) is required to build a real
+# RegularGridInterpolator -- mirrors the fixture in test_geolocation.py.
+_GCP_LINES = np.array([0.0, 0.0, 10.0, 10.0])
+_GCP_SAMPS = np.array([0.0, 10.0, 0.0, 10.0])
+_GCP_LATS = np.array([60.0, 60.0, 61.0, 61.0])
+_GCP_LONS = np.array([-80.0, -79.0, -80.0, -79.0])
+_GCP_ANGLES = np.array([30.0, 30.0, 30.0, 30.0])
 
 
 def test_resample_ancillary_upsamples_and_passes_through_the_distance_map() -> None:
@@ -21,19 +30,20 @@ def test_resample_ancillary_upsamples_and_passes_through_the_distance_map() -> N
         era5_raw={band: np.full((2, 2), 250.0, dtype=np.float32) for band in ERA5_BANDS},
         poly_chart=np.zeros((sar_h, sar_w)),
         poly_codes=np.array(["poly_id;CT"]),
-        gcp_lines=np.array([0.0]),
-        gcp_samps=np.array([0.0]),
-        gcp_lats=np.array([60.0]),
-        gcp_lons=np.array([-80.0]),
-        gcp_angles=np.array([30.0]),
+        gcp_lines=_GCP_LINES,
+        gcp_samps=_GCP_SAMPS,
+        gcp_lats=_GCP_LATS,
+        gcp_lons=_GCP_LONS,
+        gcp_angles=_GCP_ANGLES,
     )
-    angles_2d = np.full((2, 2), 30.0, dtype=np.float64)
+    gcp = build_gcp_interpolators(_GCP_LINES, _GCP_SAMPS, _GCP_LATS, _GCP_LONS, _GCP_ANGLES)
 
-    ancillary = resample_ancillary(raw, angles_2d)
+    ancillary = resample_ancillary(raw, gcp)
 
     assert ancillary.amsr2.shape == (len(AMSR2_BANDS), sar_h, sar_w)
     assert ancillary.era5.shape == (len(ERA5_BANDS), sar_h, sar_w)
     assert ancillary.incidence_angle.shape == (sar_h, sar_w)
+    assert np.allclose(ancillary.incidence_angle, 30.0)
     assert np.array_equal(ancillary.distance_map, raw.distance_map.astype(np.uint8))
 
 
@@ -57,15 +67,15 @@ def test_resample_ancillary_does_not_substitute_amsr2_era5() -> None:
         era5_raw={band: np.full((2, 2), 250.0, dtype=np.float32) for band in ERA5_BANDS},
         poly_chart=np.zeros((sar_h, sar_w)),
         poly_codes=np.array(["poly_id;CT"]),
-        gcp_lines=np.array([0.0]),
-        gcp_samps=np.array([0.0]),
-        gcp_lats=np.array([60.0]),
-        gcp_lons=np.array([-80.0]),
-        gcp_angles=np.array([30.0]),
+        gcp_lines=_GCP_LINES,
+        gcp_samps=_GCP_SAMPS,
+        gcp_lats=_GCP_LATS,
+        gcp_lons=_GCP_LONS,
+        gcp_angles=_GCP_ANGLES,
     )
-    angles_2d = np.full((2, 2), 30.0, dtype=np.float64)
+    gcp = build_gcp_interpolators(_GCP_LINES, _GCP_SAMPS, _GCP_LATS, _GCP_LONS, _GCP_ANGLES)
 
-    ancillary = resample_ancillary(raw, angles_2d)
+    ancillary = resample_ancillary(raw, gcp)
 
     # scene is entirely land -- the old bug substituted every pixel here with 0.0
     expected_amsr2 = resample_to_sar(amsr2_raw, sar_h, sar_w)

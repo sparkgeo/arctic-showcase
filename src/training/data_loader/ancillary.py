@@ -4,6 +4,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from training.data_loader.bands import AMSR2_BANDS, ERA5_BANDS
+from training.data_loader.geolocation import GcpInterpolators
 from training.data_loader.resampling import resample_to_sar
 from training.data_loader.scene_reader import RawScene
 
@@ -16,7 +17,7 @@ class ResampledAncillary:
     incidence_angle: NDArray[np.float32]  # (H, W)
 
 
-def resample_ancillary(raw: RawScene, angles_2d: NDArray[np.float64]) -> ResampledAncillary:
+def resample_ancillary(raw: RawScene, gcp: GcpInterpolators) -> ResampledAncillary:
     """Resamples AMSR2, ERA5, and GCP-grid incidence angle up to SAR resolution.
     distance_map is already native SAR resolution, so it passes through unchanged.
 
@@ -26,6 +27,11 @@ def resample_ancillary(raw: RawScene, angles_2d: NDArray[np.float64]) -> Resampl
     Genuine sensor/product nodata is already NaN by this point: xarray's default
     mask_and_scale decodes each variable's declared _FillValue on read in
     scene_reader.read_scene, before raw ever reaches this function.
+
+    The incidence angle is evaluated through the GCP position-aware interpolator
+    (the same one geolocation.get_chip_geo uses for chip centroids) rather than
+    zoom()'d from the raw GCP grid, since zoom assumes the GCPs are evenly spaced
+    across the scene, which isn't guaranteed.
     """
     amsr2 = np.stack(
         [resample_to_sar(raw.amsr2_raw[var], raw.sar_h, raw.sar_w) for var in AMSR2_BANDS]
@@ -33,7 +39,9 @@ def resample_ancillary(raw: RawScene, angles_2d: NDArray[np.float64]) -> Resampl
     era5 = np.stack(
         [resample_to_sar(raw.era5_raw[var], raw.sar_h, raw.sar_w) for var in ERA5_BANDS]
     )
-    incidence_angle = resample_to_sar(angles_2d.astype(np.float32), raw.sar_h, raw.sar_w)
+    row_idx, col_idx = np.mgrid[0 : raw.sar_h, 0 : raw.sar_w]
+    points = np.stack([row_idx.ravel(), col_idx.ravel()], axis=-1)
+    incidence_angle = gcp.incidence_angle(points).reshape(raw.sar_h, raw.sar_w).astype(np.float32)
 
     return ResampledAncillary(
         amsr2=amsr2,
