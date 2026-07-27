@@ -6,7 +6,6 @@ from numpy.typing import NDArray
 from training.data_loader.bands import AMSR2_BANDS, ERA5_BANDS
 from training.data_loader.resampling import resample_to_sar
 from training.data_loader.scene_reader import RawScene
-from training.data_loader.valid_mask import fill_invalid
 
 
 @dataclass(frozen=True)
@@ -17,39 +16,22 @@ class ResampledAncillary:
     incidence_angle: NDArray[np.float32]  # (H, W)
 
 
-def _resample_and_fill(
-    raw: NDArray[np.float32],
-    sar_h: int,
-    sar_w: int,
-    valid_mask: NDArray[np.bool_],
-    fill: float,
-) -> NDArray[np.float32]:
-    return fill_invalid(resample_to_sar(raw, sar_h, sar_w), valid_mask, fill)
-
-
-def resample_ancillary(
-    raw: RawScene,
-    angles_2d: NDArray[np.float64],
-    valid_mask: NDArray[np.bool_],
-    band_means: dict[str, float],
-) -> ResampledAncillary:
+def resample_ancillary(raw: RawScene, angles_2d: NDArray[np.float64]) -> ResampledAncillary:
     """Resamples AMSR2, ERA5, and GCP-grid incidence angle up to SAR resolution.
-    distance_map is already native SAR resolution, so it passes through unchanged."""
+    distance_map is already native SAR resolution, so it passes through unchanged.
+
+    AMSR2/ERA5 are never fed to Clay and are physically valid over land and open
+    water alike (unlike SAR, which has no return over land), so the SAR/land valid
+    mask does not apply to them. Values are resampled as-is, with no substitution.
+    Genuine sensor/product nodata is already NaN by this point: xarray's default
+    mask_and_scale decodes each variable's declared _FillValue on read in
+    scene_reader.read_scene, before raw ever reaches this function.
+    """
     amsr2 = np.stack(
-        [
-            _resample_and_fill(
-                raw.amsr2_raw[var], raw.sar_h, raw.sar_w, valid_mask, band_means.get(var, 0.0)
-            )
-            for var in AMSR2_BANDS
-        ]
+        [resample_to_sar(raw.amsr2_raw[var], raw.sar_h, raw.sar_w) for var in AMSR2_BANDS]
     )
     era5 = np.stack(
-        [
-            _resample_and_fill(
-                raw.era5_raw[var], raw.sar_h, raw.sar_w, valid_mask, band_means.get(var, 0.0)
-            )
-            for var in ERA5_BANDS
-        ]
+        [resample_to_sar(raw.era5_raw[var], raw.sar_h, raw.sar_w) for var in ERA5_BANDS]
     )
     incidence_angle = resample_to_sar(angles_2d.astype(np.float32), raw.sar_h, raw.sar_w)
 

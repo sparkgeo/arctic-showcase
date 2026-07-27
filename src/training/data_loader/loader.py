@@ -32,7 +32,7 @@ def load_scene(scene_path: Path, band_means: dict[str, float]) -> SceneArrays:
     gcp = build_gcp_interpolators(
         raw.gcp_lines, raw.gcp_samps, raw.gcp_lats, raw.gcp_lons, raw.gcp_angles
     )
-    ancillary = resample_ancillary(raw, gcp.angles_2d, valid_mask, band_means)
+    ancillary = resample_ancillary(raw, gcp.angles_2d)
     chart_ct = build_chart_ct(raw.poly_chart, raw.poly_codes)
     acq_dt = parse_acquisition_datetime(scene_path)
 

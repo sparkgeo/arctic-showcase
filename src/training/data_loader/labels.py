@@ -1,21 +1,40 @@
 import numpy as np
 from numpy.typing import NDArray
 
+# AI4ArcticSeaIceChallenge/utils.py's SIC_LOOKUP
+_SIC_LOOKUP: dict[int, float] = {
+    0: 0.0,
+    1: 0.0,
+    2: 0.0,
+    55: 0.0,
+    10: 1.0,
+    20: 2.0,
+    30: 3.0,
+    40: 4.0,
+    50: 5.0,
+    60: 6.0,
+    70: 7.0,
+    80: 8.0,
+    90: 9.0,
+    91: 10.0,
+    92: 10.0,
+}
+
 
 def parse_ct_tenths(ct_str: str) -> float | None:
-    """Convert a raw SIGRID-3 CT string to tenths (0-10 float), or None for the -9 fill code
-    or an unknown/not-filled/glacier sentinel (e.g. 91, 92 -- any single code that isn't an
-    exact multiple of 10, since genuine single CT codes always are)."""
+    """Convert a raw SIGRID-3 CT string to tenths (0-10 float) via the AI4Arctic
+    SIC_LOOKUP table, or None for the -9 fill code or any code absent from the table."""
     s = ct_str.strip()
     if s == "-9":
         return None
-    if "-" in s[1:]:  # range code e.g. '50-70' -> midpoint 60 -> 6.0
+    if "-" in s[1:]:  # range code e.g. '50-70' -> midpoint of each endpoint's tenths
         lo, _, hi = s.partition("-")
-        return (float(lo) + float(hi)) / 2.0 / 10.0
-    value = float(s)
-    if value % 10 != 0:
-        return None
-    return value / 10.0
+        lo_tenths = _SIC_LOOKUP.get(int(float(lo)))
+        hi_tenths = _SIC_LOOKUP.get(int(float(hi)))
+        if lo_tenths is None or hi_tenths is None:
+            return None
+        return (lo_tenths + hi_tenths) / 2.0
+    return _SIC_LOOKUP.get(int(float(s)))
 
 
 def build_chart_ct(
