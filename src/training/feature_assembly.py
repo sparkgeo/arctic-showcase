@@ -5,11 +5,9 @@ import numpy as np
 from numpy.typing import NDArray
 from shapely.geometry.base import BaseGeometry
 
-from training.data_loader.bands import AMSR2_BANDS, ERA5_BANDS, GRID_SIZE
+from training.data_loader.bands import AMSR2_BANDS, ERA5_BANDS, GRID_SIZE, N_PATCHES
 from training.label_prep import N_SIC_CLASSES, PatchLabels
 from training.patch_features import PatchFeatures
-
-N_PATCHES = GRID_SIZE * GRID_SIZE
 
 # Source variable paired with their feature-contract column names.
 _AMSR2_COLUMN_MAP: list[tuple[str, str]] = [

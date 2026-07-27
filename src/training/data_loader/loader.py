@@ -25,7 +25,9 @@ logger = logging.getLogger(__name__)
 def load_scene(scene_path: Path, band_means: dict[str, float]) -> SceneArrays:
     raw = read_scene(scene_path)
 
-    valid_mask = compute_valid_mask(raw.sar["nersc_sar_primary"], raw.distance_map)
+    valid_mask = compute_valid_mask(
+        raw.sar["nersc_sar_primary"], raw.sar["nersc_sar_secondary"], raw.distance_map
+    )
     for var, arr in raw.sar.items():
         fill_invalid(arr, valid_mask, band_means.get(var, 0.0))
 

@@ -8,7 +8,7 @@ import pandas as pd
 from mypy_boto3_s3 import S3Client
 from shapely.geometry import Point
 
-from training.data_loader.bands import AMSR2_BANDS, ERA5_BANDS, GRID_SIZE
+from training.data_loader.bands import AMSR2_BANDS, ERA5_BANDS, GRID_SIZE, N_PATCHES
 from training.feature_assembly import ChipGeometry, assemble_rows
 from training.label_prep import N_SIC_CLASSES, PatchLabels
 from training.patch_features import PatchFeatures
@@ -17,8 +17,6 @@ BUCKET = "prescient-ice-data"
 PATCH_TABLE_PREFIX = "training_data/ai4arctic/features/patch_table/"
 CHIP_TABLE_PREFIX = "training_data/ai4arctic/features/chip_table/"
 PROFILE = "spk_data"
-
-N_PATCHES = GRID_SIZE * GRID_SIZE
 
 
 def expected_columns() -> tuple[list[str], list[str]]:

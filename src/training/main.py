@@ -1,3 +1,4 @@
+import argparse
 import logging
 import tempfile
 from dataclasses import dataclass
@@ -28,15 +29,15 @@ from training.label_prep import compute_patch_labels as prepare_labels
 from training.parquet_writer import write_partition
 from training.patch_features import compute_patch_features as extract_patch_features
 
-BUCKET = "prescient-ice-data"
+DEFAULT_BUCKET = "prescient-ice-data"
 S3_TRAIN_PREFIX = "training_data/ai4arctic/raw_train/"
 S3_TEST_PREFIX = "training_data/ai4arctic/raw_test/"
 STATS_KEY = "training_data/ai4arctic/statistics/dataset_stats.json"
 PATCH_TABLE_PREFIX = "training_data/ai4arctic/features/patch_table/"
 CHIP_TABLE_PREFIX = "training_data/ai4arctic/features/chip_table/"
-PROFILE = "spk_data"
-# Local-test cap on the number of scenes processed. None runs the full corpus.
-MAX_SCENES: int | None = 2
+# Local-test cap on the number of scenes processed. None (or a non-positive
+# --max-scenes) runs the full corpus.
+DEFAULT_MAX_SCENES: int | None = 2
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 CLAY_CHECKPOINT_PATH = _REPO_ROOT / "clay-v1.5.ckpt"
@@ -54,6 +55,17 @@ logger = logging.getLogger(__name__)
 class SceneRef:
     key: str
     split: str
+
+
+def scene_already_processed(
+    s3: S3Client, bucket: str, chip_table_prefix: str, scene_id: str
+) -> bool:
+    """True if scene_id's chip_table partition is already in S3. chip_table is the
+    last write in a scene's processing (see main()), so its presence means the
+    scene's GPU encoding and both tables already completed on a prior run."""
+    prefix = f"{chip_table_prefix}scene_id={scene_id}/"
+    response = s3.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1)
+    return response["KeyCount"] > 0
 
 
 def list_all_scenes(
@@ -76,113 +88,168 @@ def list_all_scenes(
     ]
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the B2 training feature-assembly harness.")
+    parser.add_argument("--bucket", default=DEFAULT_BUCKET)
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="AWS profile name; omit to use the default credential chain "
+        "(e.g. an IAM role when running in the cloud)",
+    )
+    parser.add_argument(
+        "--max-scenes",
+        type=int,
+        default=DEFAULT_MAX_SCENES,
+        help="Cap on the number of scenes processed; pass a non-positive value to "
+        "process the full corpus",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
-    session = boto3.Session(profile_name=PROFILE)
+    args = parse_args()
+    bucket = args.bucket
+    max_scenes = args.max_scenes if args.max_scenes is not None and args.max_scenes > 0 else None
+
+    session = boto3.Session(profile_name=args.profile)
     s3: S3Client = session.client("s3")
 
-    band_means = load_band_means(s3, BUCKET, STATS_KEY, ALL_BANDS)
-    stats = load_stats(s3, BUCKET, STATS_KEY)
+    band_means = load_band_means(s3, bucket, STATS_KEY, ALL_BANDS)
+    stats = load_stats(s3, bucket, STATS_KEY)
 
     device = select_device()
     sar_meta = ensure_sentinel1_ew_entry(CLAY_METADATA_PATH, stats)
 
     # Retrieve the ClayMAE checkpoint from S3 if it's not already present locally.
     if not CLAY_CHECKPOINT_PATH.exists():
-        s3.download_file(BUCKET, CLAY_CHECKPOINT_S3_PREFIX, str(CLAY_CHECKPOINT_PATH))
+        s3.download_file(bucket, CLAY_CHECKPOINT_S3_PREFIX, str(CLAY_CHECKPOINT_PATH))
     module = load_clay_module(CLAY_CHECKPOINT_PATH, CLAY_METADATA_PATH, device)
 
-    all_scenes = list_all_scenes(s3, BUCKET, S3_TRAIN_PREFIX, S3_TEST_PREFIX)
-    if MAX_SCENES is not None:
-        all_scenes = all_scenes[:MAX_SCENES]
+    all_scenes = list_all_scenes(s3, bucket, S3_TRAIN_PREFIX, S3_TEST_PREFIX)
+    if max_scenes is not None:
+        all_scenes = all_scenes[:max_scenes]
     logger.info("Processing %d scenes", len(all_scenes))
+
+    failed_scenes: list[str] = []
 
     with tempfile.TemporaryDirectory() as scratch:
         scratch_dir = Path(scratch)
 
         for scene_idx, scene in enumerate(all_scenes, start=1):
-            scene_patch_rows: list[dict[str, Any]] = []
-            scene_chip_rows: list[dict[str, Any]] = []
-
-            logger.info(
-                "[%d/%d] %s (split=%s): downloading",
-                scene_idx,
-                len(all_scenes),
-                scene.key,
-                scene.split,
-            )
-
-            # download + load stand in for the pseudocode's single load_chips(scene) --
-            # scenes live in S3, and load_scene needs a local NetCDF path.
-            scene_path = download_scene(s3, BUCKET, scene.key, scratch_dir)
-            loaded_scene = load_scene(scene_path, band_means)
-
-            chip_count = 0
-            total_patch_rows = 0
-            patch_part = 0
-            for chip in load_chips(loaded_scene):
-                embeddings = encode_chip(chip, module, sar_meta, device)  # B2.2 -- embeddings only
-                patch_features = extract_patch_features(chip)  # B2.3
-                labels = prepare_labels(chip)  # B2.4
-                geometry = build_chip_geometry(chip, loaded_scene.gcp)
-
-                patch_rows, chip_row = assemble_rows(  # B2.5
-                    embeddings, patch_features, labels, geometry, chip.scene_id
+            scene_id = Path(scene.key).stem
+            if scene_already_processed(s3, bucket, CHIP_TABLE_PREFIX, scene_id):
+                logger.info(
+                    "[%d/%d] %s: already processed, skipping", scene_idx, len(all_scenes), scene.key
                 )
-                for row in patch_rows:
-                    row["split"] = scene.split
-                chip_row["split"] = scene.split
+                continue
 
-                scene_patch_rows.extend(patch_rows)
-                scene_chip_rows.append(chip_row)
+            scene_path: Path | None = None
+            try:
+                scene_patch_rows: list[dict[str, Any]] = []
+                scene_chip_rows: list[dict[str, Any]] = []
 
-                chip_count += 1
-                if chip_count % CHIP_LOG_INTERVAL == 0:
-                    logger.info(
-                        "[%d/%d] %s: %d chips done",
-                        scene_idx,
-                        len(all_scenes),
-                        scene.key,
-                        chip_count,
+                logger.info(
+                    "[%d/%d] %s (split=%s): downloading",
+                    scene_idx,
+                    len(all_scenes),
+                    scene.key,
+                    scene.split,
+                )
+
+                # download + load stand in for the pseudocode's single load_chips(scene) --
+                # scenes live in S3, and load_scene needs a local NetCDF path.
+                scene_path = download_scene(s3, bucket, scene.key, scratch_dir)
+                loaded_scene = load_scene(scene_path, band_means)
+
+                chip_count = 0
+                total_patch_rows = 0
+                patch_part = 0
+                for chip in load_chips(loaded_scene):
+                    embeddings = encode_chip(
+                        chip, module, sar_meta, device
+                    )  # B2.2 -- embeddings only
+                    patch_features = extract_patch_features(chip)  # B2.3
+                    labels = prepare_labels(chip)  # B2.4
+                    geometry = build_chip_geometry(chip, loaded_scene.gcp)
+
+                    patch_rows, chip_row = assemble_rows(  # B2.5
+                        embeddings, patch_features, labels, geometry, chip.scene_id
                     )
+                    for row in patch_rows:
+                        row["split"] = scene.split
+                    chip_row["split"] = scene.split
 
-                if chip_count % PATCH_FLUSH_INTERVAL == 0:
-                    total_patch_rows += len(scene_patch_rows)
-                    write_partition(
-                        s3,
-                        BUCKET,
-                        PATCH_TABLE_PREFIX,
-                        loaded_scene.scene_id,
-                        scene_patch_rows,
-                        part=patch_part,
-                    )
-                    patch_part += 1
-                    scene_patch_rows.clear()
+                    scene_patch_rows.extend(patch_rows)
+                    scene_chip_rows.append(chip_row)
 
-            scene_path.unlink()
+                    chip_count += 1
+                    if chip_count % CHIP_LOG_INTERVAL == 0:
+                        logger.info(
+                            "[%d/%d] %s: %d chips done",
+                            scene_idx,
+                            len(all_scenes),
+                            scene.key,
+                            chip_count,
+                        )
 
-            # flush whatever's left (a partial batch, or a whole small scene),
-            # then the chip table -- chip rows are ~1024x smaller than patch
-            # rows (no patch_token), so buffering them for the whole scene is fine.
-            total_patch_rows += len(scene_patch_rows)
-            write_partition(
-                s3,
-                BUCKET,
-                PATCH_TABLE_PREFIX,
-                loaded_scene.scene_id,
-                scene_patch_rows,
-                part=patch_part,
-            )
-            write_partition(s3, BUCKET, CHIP_TABLE_PREFIX, loaded_scene.scene_id, scene_chip_rows)
+                    if chip_count % PATCH_FLUSH_INTERVAL == 0:
+                        total_patch_rows += len(scene_patch_rows)
+                        write_partition(
+                            s3,
+                            bucket,
+                            PATCH_TABLE_PREFIX,
+                            loaded_scene.scene_id,
+                            scene_patch_rows,
+                            part=patch_part,
+                        )
+                        patch_part += 1
+                        scene_patch_rows.clear()
 
-            logger.info(
-                "[%d/%d] %s: done -- %d chips, %d patch rows, %d chip rows",
-                scene_idx,
-                len(all_scenes),
-                scene.key,
-                chip_count,
-                total_patch_rows,
-                len(scene_chip_rows),
-            )
+                scene_path.unlink()
+                scene_path = None
+
+                # flush whatever's left (a partial batch, or a whole small scene),
+                # then the chip table -- chip rows are ~1024x smaller than patch
+                # rows (no patch_token), so buffering them for the whole scene is fine.
+                total_patch_rows += len(scene_patch_rows)
+                write_partition(
+                    s3,
+                    bucket,
+                    PATCH_TABLE_PREFIX,
+                    loaded_scene.scene_id,
+                    scene_patch_rows,
+                    part=patch_part,
+                )
+                write_partition(
+                    s3, bucket, CHIP_TABLE_PREFIX, loaded_scene.scene_id, scene_chip_rows
+                )
+
+                logger.info(
+                    "[%d/%d] %s: done -- %d chips, %d patch rows, %d chip rows",
+                    scene_idx,
+                    len(all_scenes),
+                    scene.key,
+                    chip_count,
+                    total_patch_rows,
+                    len(scene_chip_rows),
+                )
+            except Exception:
+                logger.exception(
+                    "[%d/%d] %s: failed, skipping", scene_idx, len(all_scenes), scene.key
+                )
+                failed_scenes.append(scene.key)
+            finally:
+                if scene_path is not None:
+                    scene_path.unlink()
+
+    if failed_scenes:
+        logger.warning(
+            "%d/%d scene(s) failed and were skipped: %s",
+            len(failed_scenes),
+            len(all_scenes),
+            failed_scenes,
+        )
 
 
 if __name__ == "__main__":

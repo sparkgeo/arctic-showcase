@@ -65,12 +65,19 @@ def compute_patch_features(chip: Chip) -> list[PatchFeatures]:
             else:
                 hh_mean = hh_std = hv_mean = hv_std = hv_hh_ratio = float("nan")
 
-            # Patch centroid pixel coordinates, for the ancillary samples.
+            # AMSR2/ERA5 are coarse relative to a patch, so average over the whole
+            # 8x8 footprint rather than sampling one centroid pixel -- otherwise a
+            # patch's feature value is fragile to whatever that single pixel is
+            # (interpolation artifact, coastline crossing). distance_to_land is an
+            # ordinal index, not a continuous field, so it stays centroid-sampled.
+            amsr2_sample = {
+                var: float(chip.amsr2[i, r0:r1, c0:c1].mean()) for i, var in enumerate(AMSR2_BANDS)
+            }
+            era5_sample = {
+                var: float(chip.era5[i, r0:r1, c0:c1].mean()) for i, var in enumerate(ERA5_BANDS)
+            }
             rc = r0 + PATCH_SIZE // 2
             cc = c0 + PATCH_SIZE // 2
-
-            amsr2_sample = {var: float(chip.amsr2[i, rc, cc]) for i, var in enumerate(AMSR2_BANDS)}
-            era5_sample = {var: float(chip.era5[i, rc, cc]) for i, var in enumerate(ERA5_BANDS)}
             distance = float(chip.distance_map[rc, cc])
 
             # Incidence angle is a smooth geometric quantity resampled from the
