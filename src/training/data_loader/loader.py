@@ -56,13 +56,19 @@ def load_scene(scene_path: Path, band_means: dict[str, float]) -> SceneArrays:
 
 def yield_chips(scene: SceneArrays, chip_size: int = CHIP_SIZE) -> Iterator[Chip]:
     n_total = 0
-    n_skipped = 0
+    n_skipped_sar = 0
+    n_skipped_label = 0
 
     for r0, r1, c0, c1 in chip_bounds(scene.sar_h, scene.sar_w, chip_size):
         n_total += 1
         chip_valid = scene.valid_mask[r0:r1, c0:c1]
         if not chip_valid.any():
-            n_skipped += 1
+            n_skipped_sar += 1
+            continue
+
+        chip_chart_ct = scene.chart_ct[r0:r1, c0:c1]
+        if not (~np.isnan(chip_chart_ct)).any():
+            n_skipped_label += 1
             continue
 
         centroid_lat, centroid_lon, _ = get_chip_geo(
@@ -81,7 +87,7 @@ def yield_chips(scene: SceneArrays, chip_size: int = CHIP_SIZE) -> Iterator[Chip
             distance_map=scene.distance_map[r0:r1, c0:c1].copy(),
             incidence_angle=scene.incidence_angle[r0:r1, c0:c1].copy(),
             valid_mask=chip_valid.copy(),
-            chart_ct=scene.chart_ct[r0:r1, c0:c1].copy(),
+            chart_ct=chip_chart_ct.copy(),
             chip_row_start=r0,
             chip_col_start=c0,
             time_encoding=scene.time_encoding,
@@ -92,5 +98,13 @@ def yield_chips(scene: SceneArrays, chip_size: int = CHIP_SIZE) -> Iterator[Chip
             chip_id=f"{scene.scene_id}_r{r0:05d}_c{c0:05d}",
         )
 
+    n_skipped = n_skipped_sar + n_skipped_label
     if n_skipped:
-        logger.info("%s: skipped %d/%d fully-invalid chips", scene.scene_id, n_skipped, n_total)
+        logger.info(
+            "%s: skipped %d/%d fully-invalid chips (%d no SAR coverage, %d no label coverage)",
+            scene.scene_id,
+            n_skipped,
+            n_total,
+            n_skipped_sar,
+            n_skipped_label,
+        )
