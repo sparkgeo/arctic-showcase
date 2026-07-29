@@ -8,7 +8,7 @@ def compute_valid_mask(
     distance_map: NDArray[np.float32],
 ) -> NDArray[np.bool_]:
     """True = valid pixel. Computed before substitution: land is distance_map code 0,
-    nodata is NaN in either SAR band -- HH and HV don't necessarily share the same
+    nodata is NaN in either SAR band - HH and HV don't necessarily share the same
     nodata footprint (e.g. far-range near-noise-floor masking), so a pixel valid in
     one band but NaN in the other must still be treated as invalid in both."""
     is_land = distance_map == 0
