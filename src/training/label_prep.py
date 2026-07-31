@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -25,8 +26,9 @@ def compute_patch_labels(chip: Chip) -> list[PatchLabels]:
     Subdivides a chip's per-pixel chart CT data (chip.chart_ct, tenths, NaN = no valid
     class) into the 32x32 patch grid and computes per-patch label statistics: the
     per-class area-fraction vector, valid_class_fraction, the discrete label (the
-    area-weighted collapse, rounded -- a pure patch is the degenerate case of the same
-    formula), and is_pure.
+    area-weighted collapse, floored rather than rounded so a mixed patch is never
+    assigned more ice than it actually has -- a pure patch is the degenerate case of
+    the same formula), and is_pure.
     """
     chart_ct = chip.chart_ct  # (256, 256)
     labels = []
@@ -45,7 +47,7 @@ def compute_patch_labels(chip: Chip) -> list[PatchLabels]:
                 patch_classes = np.rint(patch_ct[valid]).astype(np.int64)
                 counts = np.bincount(patch_classes, minlength=N_SIC_CLASSES)[:N_SIC_CLASSES]
                 frac_sic = (counts / n_valid).astype(np.float32)
-                label = float(round(float(np.dot(np.arange(N_SIC_CLASSES), frac_sic))))
+                label = float(math.floor(float(np.dot(np.arange(N_SIC_CLASSES), frac_sic))))
                 is_pure = bool((frac_sic == 1.0).any())
             else:
                 frac_sic = np.full(N_SIC_CLASSES, np.nan, dtype=np.float32)

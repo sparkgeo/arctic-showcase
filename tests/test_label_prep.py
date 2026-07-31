@@ -1,4 +1,5 @@
 import numpy as np
+
 from training.data_loader.bands import CHIP_SIZE, GRID_SIZE, N_PATCHES
 from training.data_loader.chip import Chip
 from training.label_prep import compute_patch_labels
@@ -31,6 +32,9 @@ def test_compute_patch_labels_happy_path() -> None:
     chart_ct[0:8, 8:16] = np.concatenate(  # patch (0, 1): mixed classes 8 and 9
         [np.full((4, 8), 8.0), np.full((4, 8), 9.0)]
     )
+    chart_ct[0:8, 16:24] = np.concatenate(  # patch (0, 2): mixed classes 9 and 10
+        [np.full((4, 8), 9.0), np.full((4, 8), 10.0)]
+    )
 
     labels = compute_patch_labels(_make_chip(chart_ct))
 
@@ -48,7 +52,14 @@ def test_compute_patch_labels_happy_path() -> None:
     assert mixed.is_pure is False
     assert mixed.frac_sic[8] == 0.5
     assert mixed.frac_sic[9] == 0.5
-    assert mixed.label == 8.0  # 8*0.5 + 9*0.5 = 8.5, banker's rounding -> 8
+    assert mixed.label == 8.0  # 8*0.5 + 9*0.5 = 8.5, floored -> 8
+
+    mixed_high = labels[2]
+    assert (mixed_high.patch_i, mixed_high.patch_j) == (0, 2)
+    assert mixed_high.is_pure is False
+    assert mixed_high.frac_sic[9] == 0.5
+    assert mixed_high.frac_sic[10] == 0.5
+    assert mixed_high.label == 9.0  # 9*0.5 + 10*0.5 = 9.5, floored -> 9 (not rounded to 10)
 
     empty = labels[-1]  # bottom-right patch: no chart coverage at all
     assert empty.valid_class_fraction == 0.0
