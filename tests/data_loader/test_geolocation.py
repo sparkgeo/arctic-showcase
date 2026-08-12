@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+
 from training.data_loader.geolocation import (
     build_gcp_interpolators,
     get_chip_geo,

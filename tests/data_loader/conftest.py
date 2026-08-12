@@ -3,6 +3,7 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 import xarray as xr
+
 from training.data_loader.bands import AMSR2_BANDS, ERA5_BANDS
 
 
