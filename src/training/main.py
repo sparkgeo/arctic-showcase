@@ -28,13 +28,11 @@ from training.geometry import build_chip_geometry
 from training.label_prep import compute_patch_labels as prepare_labels
 from training.parquet_writer import write_partition
 from training.patch_features import compute_patch_features as extract_patch_features
+from training.s3_paths import CHIP_TABLE_PREFIX, DEFAULT_BUCKET, PATCH_TABLE_PREFIX
 
-DEFAULT_BUCKET = "prescient-ice-data"
 S3_TRAIN_PREFIX = "training_data/ai4arctic/raw_train/"
 S3_TEST_PREFIX = "training_data/ai4arctic/raw_test/"
 STATS_KEY = "training_data/ai4arctic/statistics/dataset_stats.json"
-PATCH_TABLE_PREFIX = "training_data/ai4arctic/features/patch_table/"
-CHIP_TABLE_PREFIX = "training_data/ai4arctic/features/chip_table/"
 # Local-test cap on the number of scenes processed. None (or a non-positive
 # --max-scenes) runs the full corpus.
 DEFAULT_MAX_SCENES: int | None = 2

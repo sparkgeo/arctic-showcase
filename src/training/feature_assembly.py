@@ -30,6 +30,11 @@ assert [source for source, _ in _AMSR2_COLUMN_MAP] == AMSR2_BANDS, (
     "AMSR2 column map has drifted from bands.AMSR2_BANDS"
 )
 
+# Feature-contract AMSR2 column names, in contract order -- the single source of
+# truth for downstream consumers (e.g. classification.features) building the same
+# column order without re-deriving it.
+AMSR2_CONTRACT_COLUMNS: list[str] = [contract for _, contract in _AMSR2_COLUMN_MAP]
+
 # Clay's encoder output: (patch_tokens, class_token) as returned by
 # encoding.encode_chip -- shapes (1, 1024, 32, 32) and (1, 1024).
 ChipEmbeddings = tuple[NDArray[np.float32], NDArray[np.float32]]
